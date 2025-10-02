@@ -1,0 +1,21 @@
+[project]
+name = "odoo-venv"
+version = "0.1.0"
+description = "A command-line tool to spin up isolated Odoo dev environment in seconds."
+readme = "README.md"
+authors = [
+    { name = "trisdoan", email = "doanminhtri8183@gmail.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "typer",
+    "typing_extensions",
+]
+
+[project.scripts]
+odoo-venv = "odoo_venv.cli.main:app"
+
+
+[build-system]
+requires = ["uv_build>=0.8.18,<0.9.0"]
+build-backend = "uv_build"
