@@ -88,6 +88,10 @@ def create(
         Optional[str],
         typer.Option(help="Comma-separated list of extra packages to install."),
     ] = None,
+    verbose: Annotated[
+        bool,
+        typer.Option(help="Display more details to user"),
+    ] = False,
 ):
     """Create virtual environment to run Odoo"""
     if not odoo_dir:
@@ -125,4 +129,5 @@ def create(
         ignore_from_addons_manifests_requirements=ignore_from_addons_manifests_requirements,
         extra_requirements_file=extra_requirements_file,
         extra_requirements=extra_requirements_list,
+        verbose=verbose,
     )

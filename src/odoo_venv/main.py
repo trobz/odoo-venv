@@ -15,7 +15,10 @@ def _run_command(
     command: List[str],
     venv_dir: Optional[Path] = None,
     cwd: Optional[Path] = None,
+    verbose: bool = False,
 ):
+    if verbose:
+        typer.secho(f"  → Running: {' '.join(command)}", fg=typer.colors.BLUE)
     env = os.environ.copy()
     if venv_dir:
         env["PATH"] = str(venv_dir / "bin") + os.pathsep + env["PATH"]
@@ -70,6 +73,7 @@ def create_odoo_venv(
     ignore_from_addons_manifests_requirements: Optional[str] = None,
     extra_requirements_file: Optional[str] = None,
     extra_requirements: Optional[List[str]] = None,
+    verbose: bool = False,
 ):
     odoo_dir = Path(odoo_dir).expanduser().resolve()
     venv_dir = Path(venv_dir).expanduser().resolve()
@@ -79,13 +83,24 @@ def create_odoo_venv(
         python_version = _get_python_version_from_odoo_src(odoo_dir)
 
     # 2. Create virtual environment
-    _run_command(["uv", "venv", str(venv_dir), "--python", python_version])
+    typer.secho("Creating virtual environment...")
+    _run_command(
+        ["uv", "venv", str(venv_dir), "--python", python_version], verbose=verbose
+    )
+    typer.secho(
+        f"  ✔ Virtual environment created at {typer.style(str(venv_dir), fg=typer.colors.YELLOW)}",
+    )
 
     # 3. Install Odoo in editable mode
     if install_odoo:
+        typer.secho("\nInstalling Odoo in editable mode...")
         _run_command(
             ["uv", "pip", "install", "-e", f"file://{odoo_dir}#egg=odoo"],
             venv_dir=venv_dir,
+            verbose=verbose,
+        )
+        typer.secho(
+            "  ✔  Installed Odoo in editable mode",
         )
 
     # 4. Install requirements
@@ -194,12 +209,26 @@ def create_odoo_venv(
             "-r",
             tmp_path,
         ]
-        _run_command(install_args, venv_dir=venv_dir)
+        typer.secho("\nInstalling required packages...")
+        if verbose:
+            if to_ignore:
+                typer.secho("   Packages to ignore:", fg=typer.colors.BLUE)
+                for pkg in sorted(list(to_ignore)):
+                    typer.secho(f"      - {pkg}", fg=typer.colors.YELLOW)
+            with open(tmp_path, "r", encoding="utf-8") as f:
+                requirements = f.read().splitlines()
+                typer.secho("   Packages to install:", fg=typer.colors.BLUE)
+                for req in requirements:
+                    typer.secho(f"      - {req}", fg=typer.colors.CYAN)
+
+        _run_command(install_args, venv_dir=venv_dir, verbose=False)
+        typer.secho(
+            f"  ✔  {typer.style(req_count, fg=typer.colors.YELLOW)} Packages installed successfully"
+        )
 
     os.remove(tmp_path)
 
-    typer.secho(f"Virtual env: {venv_dir}", fg=typer.colors.GREEN)
+    typer.secho("\n✅ Environment setup complete!", fg=typer.colors.GREEN)
     typer.secho(
-        f"Activate it with: source {venv_dir}/bin/activate",
-        fg=typer.colors.YELLOW,
+        f"Activate it with: source {typer.style(str(venv_dir / 'bin' / 'activate'), fg=typer.colors.YELLOW)}",
     )
