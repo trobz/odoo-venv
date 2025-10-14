@@ -92,6 +92,10 @@ def create(
         bool,
         typer.Option(help="Display more details to user"),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option(),
+    ] = False,
 ):
     """Create virtual environment to run Odoo"""
     if not odoo_dir:
@@ -130,4 +134,5 @@ def create(
         extra_requirements_file=extra_requirements_file,
         extra_requirements=extra_requirements_list,
         verbose=verbose,
+        dry_run=dry_run,
     )

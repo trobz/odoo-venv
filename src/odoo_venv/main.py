@@ -16,9 +16,14 @@ def _run_command(
     venv_dir: Optional[Path] = None,
     cwd: Optional[Path] = None,
     verbose: bool = False,
+    dry_run: bool = False,
 ):
     if verbose:
         typer.secho(f"  → Running: {' '.join(command)}", fg=typer.colors.BLUE)
+
+    if dry_run:
+        return
+
     env = os.environ.copy()
     if venv_dir:
         env["PATH"] = str(venv_dir / "bin") + os.pathsep + env["PATH"]
@@ -74,6 +79,7 @@ def create_odoo_venv(
     extra_requirements_file: Optional[str] = None,
     extra_requirements: Optional[List[str]] = None,
     verbose: bool = False,
+    dry_run: bool = False,
 ):
     odoo_dir = Path(odoo_dir).expanduser().resolve()
     venv_dir = Path(venv_dir).expanduser().resolve()
@@ -85,7 +91,9 @@ def create_odoo_venv(
     # 2. Create virtual environment
     typer.secho("Creating virtual environment...")
     _run_command(
-        ["uv", "venv", str(venv_dir), "--python", python_version], verbose=verbose
+        ["uv", "venv", str(venv_dir), "--python", python_version],
+        verbose=verbose,
+        dry_run=dry_run,
     )
     typer.secho(
         f"  ✔ Virtual environment created at {typer.style(str(venv_dir), fg=typer.colors.YELLOW)}",
@@ -98,6 +106,7 @@ def create_odoo_venv(
             ["uv", "pip", "install", "-e", f"file://{odoo_dir}#egg=odoo"],
             venv_dir=venv_dir,
             verbose=verbose,
+            dry_run=dry_run,
         )
         typer.secho(
             "  ✔  Installed Odoo in editable mode",
@@ -221,7 +230,7 @@ def create_odoo_venv(
                 for req in requirements:
                     typer.secho(f"      - {req}", fg=typer.colors.CYAN)
 
-        _run_command(install_args, venv_dir=venv_dir, verbose=False)
+        _run_command(install_args, venv_dir=venv_dir, verbose=False, dry_run=dry_run)
         typer.secho(
             f"  ✔  {typer.style(req_count, fg=typer.colors.YELLOW)} Packages installed successfully"
         )
