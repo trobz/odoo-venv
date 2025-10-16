@@ -1,9 +1,12 @@
 import typer
-from typing import Optional
+from typing import Optional, List
 from typing_extensions import Annotated
 from pathlib import Path
+from dataclasses import asdict
 
 from odoo_venv import create_odoo_venv
+
+from odoo_venv.utils import initialize_presets, load_presets
 
 app = typer.Typer()
 
@@ -19,8 +22,26 @@ ODOO_PYTHON_VERSIONS = {
 }
 
 
+def preset_callback(ctx: typer.Context, param: typer.CallbackParam, value: str):
+    if not value:
+        return None
+
+    initialize_presets()
+    all_presets = load_presets()
+    if value not in all_presets:
+        raise typer.BadParameter(f"Preset '{value}' not found.")
+
+    preset_vals = all_presets[value]
+    preset_options = asdict(preset_vals)
+
+    ctx.default_map = ctx.default_map or {}
+    ctx.default_map.update(preset_options)
+    return value
+
+
 @app.command()
 def create(
+    ctx: typer.Context,
     odoo_version: Annotated[str, typer.Argument(help="Odoo version, e.g: 18.0")],
     python_version: Annotated[
         Optional[str],
@@ -96,6 +117,15 @@ def create(
         bool,
         typer.Option(),
     ] = False,
+    preset: Annotated[
+        Optional[str],
+        typer.Option(
+            "--preset",
+            callback=preset_callback,
+            is_eager=True,  # tell Typer to process this first
+            help="Use a preset of options. Preset values can be overriden by other options.",
+        ),
+    ] = None,
 ):
     """Create virtual environment to run Odoo"""
     if not odoo_dir:
@@ -108,9 +138,12 @@ def create(
 
     venv_dir_path = Path(venv_dir).expanduser().resolve()
 
-    extra_requirements_list = (
-        extra_requirement.split(",") if extra_requirement else None
-    )
+    extra_requirements_list: []
+    if extra_requirement:
+        if isinstance(extra_requirement, str):
+            extra_requirements_list = extra_requirement.split(",")
+        else:
+            extra_requirements_list = list(extra_requirement)
 
     addons_path_list = (
         [str(Path(p.strip()).expanduser().resolve()) for p in addons_path.split(",")]

@@ -6,10 +6,12 @@ readme = "README.md"
 authors = [
     { name = "trisdoan", email = "doanminhtri8183@gmail.com" }
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "typer",
     "typing_extensions",
+    "tomli",
+
 ]
 
 [project.scripts]

@@ -1,0 +1,62 @@
+# This file contains presets for the odoo-venv command.
+#
+# Available options:
+#
+# install_odoo (boolean):
+#   Install Odoo in editable mode.
+#   Default: true
+#
+# install_odoo_requirements (boolean):
+#   Install packages from Odoo's requirement.txt.
+#   Default: true
+#
+# ignore_from_odoo_requirements (string):
+#   Comma-separated list of packages to ignore from Odoo's requirement.txt.
+#
+# install_addons_dirs_requirements (boolean):
+#   Install requirements.txt found in addons paths.
+#   Default: false
+#
+# ignore_from_addons_dirs_requirements (string):
+#   Comma-separated list of packages to ignore from addons paths' requirement.txt.
+#
+# install_addons_manifests_requirements (boolean):
+#   Install requirements from addons' manifests.
+#   Default: false
+#
+# ignore_from_addons_manifests_requirements (string):
+#   Comma-separated list of packages to ignore from addons' manifests.
+#
+# extra_requirements_file (string):
+#   Path to an extra requirements file.
+#
+# extra_requirement (string):
+#   Comma-separated list of extra packages to install.
+#
+
+[local]
+ignore_from_odoo_requirements = "gevent,greenlet"
+install_addons_dirs_requirements = true
+install_addons_manifests_requirements = true
+extra_requirement = "gevent,greenlet,readline,rlcompleter,debugpy,ipython,setproctitle,watchdog,jingtrang,websocket-client,coverage,pylint,astroid,pdfminer.six,fonttools"
+ignore_from_addons_dirs_requirements = "azure-identity,mysql,mysqlclient,pymssql,cn2an"
+
+[demo]
+ignore_from_odoo_requirements = "gevent,greenlet"
+install_addons_dirs_requirements = true
+install_addons_manifests_requirements = true
+extra_requirement = "gevent,greenlet,pdfminer.six,fonttools"
+ignore_from_addons_dirs_requirements = "azure-identity,mysql,mysqlclient,pymssql,cn2an"
+
+[project]
+ignore_from_odoo_requirements = "gevent,greenlet"
+extra_requirements_file = "./requirements.txt"
+extra_requirement = "pdfminer.six,fonttools"
+
+[ci]
+ignore_from_odoo_requirements = "gevent,greenlet"
+install_addons_dirs_requirements = true
+install_addons_manifests_requirements = true
+extra_requirements_file = "./requirements.txt"
+extra_requirement = "gevent,greenlet,websocket-client,coverage,pylint,astroid,pdfminer.six,fonttools"
+ignore_from_addons_dirs_requirements = "azure-identity,mysql,mysqlclient,pymssql,cn2an"
