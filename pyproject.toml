@@ -11,7 +11,7 @@ dependencies = [
     "typer",
     "typing_extensions",
     "tomli",
-
+    "packaging>=25.0",
 ]
 
 [project.scripts]
