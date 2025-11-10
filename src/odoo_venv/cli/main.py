@@ -138,7 +138,7 @@ def create(
 
     venv_dir_path = Path(venv_dir).expanduser().resolve()
 
-    extra_requirements_list: []
+    extra_requirements_list = []
     if extra_requirement:
         if isinstance(extra_requirement, str):
             extra_requirements_list = extra_requirement.split(",")
