@@ -16,6 +16,7 @@ MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 @dataclass
 class Preset:
+    description: str | None = None
     install_odoo: bool | None = True
     install_odoo_requirements: bool | None = True
     ignore_from_odoo_requirements: str | None = None
@@ -44,7 +45,7 @@ def initialize_presets():
         user_presets_path.write_text(default_presets_path.read_text())
 
 
-def load_presets() -> dict[str, Preset]:
+def load_presets() -> dict[str, Preset]:  # noqa: C901
     default_presets_path = MODULE_PATH / "assets" / PRESETS_FILE
     with open(default_presets_path, "rb") as f:
         presets_data = tomli.load(f)
@@ -58,6 +59,35 @@ def load_presets() -> dict[str, Preset]:
                     presets_data[preset_name].update(options)
                 else:
                     presets_data[preset_name] = options
+
+    if "common" in presets_data:
+        common_options = presets_data["common"]
+        string_list_fields = {
+            "ignore_from_odoo_requirements",
+            "ignore_from_addons_dirs_requirements",
+            "ignore_from_addons_manifests_requirements",
+            "extra_requirement",
+        }
+
+        for name, options in presets_data.items():
+            merged_options = {}
+
+            # apply settings from 'common' preset
+            for key, common_value in common_options.items():
+                if key != "description" and common_value is not None:
+                    merged_options[key] = common_value
+
+            # apply from specific preset
+            for key, val in options.items():
+                if val is None:
+                    continue
+
+                if key in string_list_fields and key in merged_options and merged_options[key]:
+                    merged_options[key] = f"{merged_options[key]},{val}"
+                else:
+                    merged_options[key] = val
+
+            presets_data[name] = merged_options
 
     return {name: Preset.from_dict(options) for name, options in presets_data.items()}
 

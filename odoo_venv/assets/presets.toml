@@ -34,29 +34,69 @@
 #   Comma-separated list of extra packages to install.
 #
 
+[common]
+
+description = """
+common configuration to all presets
+"""
+
+# on ubuntu 22.04/24.04, gevent fails to install with python 3.10
+# that we use for odoo 16.0, 17.0, 18.0, 19.0
+# see https://github.com/odoo/odoo/issues/187021
+
+ignore_from_odoo_requirements = """
+gevent==21.8.0; sys_platform != 'win32' and python_version == '3.10',
+greenlet==1.1.2; sys_platform != 'win32' and python_version == '3.10'
+"""
+extra_requirement = """
+gevent==22.10.2; sys_platform != 'win32' and python_version == '3.10',
+greenlet==2.0.2; sys_platform != 'win32' and python_version == '3.10'
+"""
+
+# always ignore those exotic requirements unless explicitely added
+ignore_from_addons_dirs_requirements = "azure-identity,mysql,mysqlclient,pymssql,cn2an"
+
 [local]
-ignore_from_odoo_requirements = "gevent,greenlet"
+
+description = """
+\n- for generic venv-odooXX local venvs that we use to work on OCA modules
+\n- adding some packages for dev-only purposes
+"""
+
 install_addons_dirs_requirements = true
 install_addons_manifests_requirements = true
-extra_requirement = "gevent,greenlet,readline,rlcompleter,debugpy,ipython,setproctitle,watchdog,jingtrang,websocket-client,coverage,pylint,astroid,pdfminer.six,fonttools"
-ignore_from_addons_dirs_requirements = "azure-identity,mysql,mysqlclient,pymssql,cn2an"
+extra_requirement = "debugpy,ipython,setproctitle,watchdog,jingtrang,websocket-client,coverage,pylint-odoo,astroid,pdfminer.six,fonttools"
 
 [demo]
-ignore_from_odoo_requirements = "gevent,greenlet"
+
+description = """
+- for odoo demo instances
+- we install all modules requirements in advance: we don't want a user to be blocked from installing an odoo module because of a missing dep
+"""
+
 install_addons_dirs_requirements = true
 install_addons_manifests_requirements = true
-extra_requirement = "gevent,greenlet,pdfminer.six,fonttools"
-ignore_from_addons_dirs_requirements = "azure-identity,mysql,mysqlclient,pymssql,cn2an"
+extra_requirement = "pdfminer.six,fonttools"
 
 [project]
-ignore_from_odoo_requirements = "gevent,greenlet"
+
+description = """
+\n- for projects (any stage: dev/integration/staging/production)
+\n- we want only the dependencies needed for the project to be installed, not more
+"""
+
+install_addons_dirs_requirements = false
+install_addons_manifests_requirements = false
 extra_requirements_file = "./requirements.txt"
 extra_requirement = "pdfminer.six,fonttools"
 
 [ci]
-ignore_from_odoo_requirements = "gevent,greenlet"
+
+description = """
+\n- for running tests
+"""
+
 install_addons_dirs_requirements = true
 install_addons_manifests_requirements = true
 extra_requirements_file = "./requirements.txt"
-extra_requirement = "gevent,greenlet,websocket-client,coverage,pylint,astroid,pdfminer.six,fonttools"
-ignore_from_addons_dirs_requirements = "azure-identity,mysql,mysqlclient,pymssql,cn2an"
+extra_requirement = "websocket-client,coverage,pylint,astroid,pdfminer.six,fonttools"

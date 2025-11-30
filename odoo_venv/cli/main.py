@@ -39,6 +39,8 @@ def preset_callback(ctx: typer.Context, param: typer.CallbackParam, value: str):
 
     ctx.default_map = ctx.default_map or {}
     ctx.default_map.update(preset_options)
+    if descr := preset_options["description"]:
+        typer.secho(f"Applying preset '{value}': {descr}", fg=typer.colors.GREEN)
     return value
 
 
