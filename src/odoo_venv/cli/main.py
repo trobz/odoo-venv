@@ -10,15 +10,18 @@ from odoo_venv.utils import initialize_presets, load_presets
 
 app = typer.Typer()
 
+# we use same python versions as OCA: https://github.com/oca/oca-ci/blob/master/.github/workflows/ci.yaml
+# with some adjustments based on our experience
+# we don't define a specific minor version here, but can be done via --python-version=
 ODOO_PYTHON_VERSIONS = {
-    "12.0": "3.7",
+    "12.0": "3.7", # faced issues with gevent and python 3.6
     "13.0": "3.7",
     "14.0": "3.8",
     "15.0": "3.8",
     "16.0": "3.10",
     "17.0": "3.10",
-    "18.0": "3.12",
-    "19.0": "3.12",
+    "18.0": "3.10",
+    "19.0": "3.10",
 }
 
 
