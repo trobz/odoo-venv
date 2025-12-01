@@ -1,11 +1,11 @@
-import typer
-from typing import Optional, List
-from typing_extensions import Annotated
-from pathlib import Path
 from dataclasses import asdict
+from pathlib import Path
+from typing import Annotated
 
-from odoo_venv import create_odoo_venv
+import typer
 
+from odoo_venv.exceptions import PresetNotFoundError
+from odoo_venv.main import create_odoo_venv
 from odoo_venv.utils import initialize_presets, load_presets
 
 app = typer.Typer()
@@ -29,7 +29,7 @@ def preset_callback(ctx: typer.Context, param: typer.CallbackParam, value: str):
     initialize_presets()
     all_presets = load_presets()
     if value not in all_presets:
-        raise typer.BadParameter(f"Preset '{value}' not found.")
+        raise PresetNotFoundError(value)
 
     preset_vals = all_presets[value]
     preset_options = asdict(preset_vals)
@@ -44,17 +44,13 @@ def create(
     ctx: typer.Context,
     odoo_version: Annotated[str, typer.Argument(help="Odoo version, e.g: 18.0")],
     python_version: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--python-version", "-p", help="Specify Python version."),
     ] = None,
-    venv_dir: Annotated[
-        str, typer.Option(help="Path to create the virtual environment.")
-    ] = "./.venv",
-    odoo_dir: Annotated[
-        Optional[str], typer.Option(help="Path to Odoo source code.")
-    ] = None,
+    venv_dir: Annotated[str, typer.Option(help="Path to create the virtual environment.")] = "./.venv",
+    odoo_dir: Annotated[str | None, typer.Option(help="Path to Odoo source code.")] = None,
     addons_path: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Comma-separated list of addons paths."),
     ] = None,
     install_odoo: Annotated[
@@ -70,10 +66,8 @@ def create(
         ),
     ] = True,
     ignore_from_odoo_requirements: Annotated[
-        Optional[str],
-        typer.Option(
-            help="Comma-separated list of packages to ignore from Odoo's requirement.txt."
-        ),
+        str | None,
+        typer.Option(help="Comma-separated list of packages to ignore from Odoo's requirement.txt."),
     ] = None,
     install_addons_dirs_requirements: Annotated[
         bool,
@@ -82,10 +76,8 @@ def create(
         ),
     ] = False,
     ignore_from_addons_dirs_requirements: Annotated[
-        Optional[str],
-        typer.Option(
-            help="Comma-separated list of packages to ignore from addons paths' requirement.txt."
-        ),
+        str | None,
+        typer.Option(help="Comma-separated list of packages to ignore from addons paths' requirement.txt."),
     ] = None,
     install_addons_manifests_requirements: Annotated[
         bool,
@@ -94,19 +86,17 @@ def create(
         ),
     ] = False,
     ignore_from_addons_manifests_requirements: Annotated[
-        Optional[str],
-        typer.Option(
-            help="Comma-separated list of packages to ignore from addons' manifests."
-        ),
+        str | None,
+        typer.Option(help="Comma-separated list of packages to ignore from addons' manifests."),
     ] = None,
     extra_requirements_file: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             help="Path to an extra requirements file.",
         ),
     ] = None,
     extra_requirement: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Comma-separated list of extra packages to install."),
     ] = None,
     verbose: Annotated[
@@ -118,7 +108,7 @@ def create(
         typer.Option(),
     ] = False,
     preset: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--preset",
             callback=preset_callback,
@@ -146,9 +136,7 @@ def create(
             extra_requirements_list = list(extra_requirement)
 
     addons_path_list = (
-        [str(Path(p.strip()).expanduser().resolve()) for p in addons_path.split(",")]
-        if addons_path
-        else None
+        [str(Path(p.strip()).expanduser().resolve()) for p in addons_path.split(",")] if addons_path else None
     )
 
     create_odoo_venv(

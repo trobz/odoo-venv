@@ -1,17 +1,16 @@
 import ast
-import subprocess
-import sys
-from pathlib import Path
 import os
 import re
+import subprocess
+import sys
 import tempfile
-import typer
-from typing import Optional, List
 from collections import defaultdict
-from packaging.requirements import Requirement, InvalidRequirement
-from packaging.markers import default_environment
-from packaging.version import parse as parse_version
+from pathlib import Path
 
+import typer
+from packaging.markers import default_environment
+from packaging.requirements import InvalidRequirement, Requirement
+from packaging.version import parse as parse_version
 
 PKG_NAME_PATTERN = re.compile(r"(?P<lib_name>[a-z0-9A-Z\-\_\.]+)((>|<|=)=)?(.*)")
 
@@ -21,9 +20,8 @@ def _keep_if_marker_matches(req_line: str, env: dict | None = None) -> str | Non
     if not req_line:
         return None
     req = Requirement(req_line)
-    env = env or default_environment()
 
-    if req.marker and not req.marker.evaluate(env):
+    if req.marker and not req.marker.evaluate(environment=env):
         return None
 
     # extras = f"[{','.join(sorted(req.extras))}]" if req.extras else ""
@@ -32,9 +30,9 @@ def _keep_if_marker_matches(req_line: str, env: dict | None = None) -> str | Non
 
 
 def _run_command(
-    command: List[str],
-    venv_dir: Optional[Path] = None,
-    cwd: Optional[Path] = None,
+    command: list[str],
+    venv_dir: Path | None = None,
+    cwd: Path | None = None,
     verbose: bool = False,
     dry_run: bool = False,
 ):
@@ -49,7 +47,8 @@ def _run_command(
         env["PATH"] = str(venv_dir / "bin") + os.pathsep + env["PATH"]
         env["VIRTUAL_ENV"] = str(venv_dir)
 
-    result = subprocess.run(
+    # safe to ignore S603 as shell=False
+    result = subprocess.run(  # noqa: S603
         command,
         env=env,
         capture_output=True,
@@ -62,7 +61,7 @@ def _run_command(
     return result
 
 
-def _get_python_version_from_odoo_src(odoo_dir: Path) -> Optional[str]:
+def _get_python_version_from_odoo_src(odoo_dir: Path) -> str | None:
     init_py = odoo_dir / "odoo" / "__init__.py"
     if not init_py.is_file():
         return None
@@ -74,7 +73,7 @@ def _get_python_version_from_odoo_src(odoo_dir: Path) -> Optional[str]:
     return None
 
 
-def _find_manifest_files(addons_paths: List[str]) -> List[Path]:
+def _find_manifest_files(addons_paths: list[str]) -> list[Path]:
     manifest_files = []
     for path in addons_paths:
         for root, _, files in os.walk(path):
@@ -87,7 +86,7 @@ def _process_requirement_line(
     req_line: str,
     ignored_req_map: dict,
     tmp_file,
-    target_env_for_markers: dict,
+    target_env_for_markers: dict[str, str],
 ) -> bool:
     req_line = req_line.strip()
     if not req_line or req_line.startswith("#"):
@@ -104,44 +103,41 @@ def _process_requirement_line(
         if req.name.lower() in ignored_req_map:
             for ignored_req in ignored_req_map[req.name.lower()]:
                 if not ignored_req.specifier or (
-                    req.specifier
-                    and (req.specifier & ignored_req.specifier) == req.specifier
+                    req.specifier and (req.specifier & ignored_req.specifier) == req.specifier
                 ):
                     should_ignore = True
                     break
 
         if should_ignore:
             return False
-
-        tmp_file.write(valid_line + "\n")
-        return True
+        else:
+            tmp_file.write(valid_line + "\n")
+            return True
 
     except InvalidRequirement:
         match = PKG_NAME_PATTERN.match(req_line)
-        if match:
-            pkg_name = match.group("lib_name").lower().strip()
-            if pkg_name in ignored_req_map:
-                return False
-
-        tmp_file.write(req_line + "\n")
-        return True
+        if match and match.group("lib_name").lower().strip() in ignored_req_map:
+            return False
+        else:
+            tmp_file.write(req_line + "\n")
+            return True
 
 
-def create_odoo_venv(
+def create_odoo_venv(  # noqa: C901
     odoo_version: str,
-    odoo_dir: str,
-    venv_dir: str,
-    python_version: Optional[str],
+    odoo_dir: Path | str,
+    venv_dir: Path | str,
+    python_version: str | None,
     install_odoo: bool = True,
     install_odoo_requirements: bool = True,
-    ignore_from_odoo_requirements: Optional[str] = None,
-    addons_paths: Optional[List[str]] = None,
+    ignore_from_odoo_requirements: str | None = None,
+    addons_paths: list[str] | None = None,
     install_addons_dirs_requirements: bool = False,
-    ignore_from_addons_dirs_requirements: Optional[str] = None,
+    ignore_from_addons_dirs_requirements: str | None = None,
     install_addons_manifests_requirements: bool = False,
-    ignore_from_addons_manifests_requirements: Optional[str] = None,
-    extra_requirements_file: Optional[str] = None,
-    extra_requirements: Optional[List[str]] = None,
+    ignore_from_addons_manifests_requirements: str | None = None,
+    extra_requirements_file: str | None = None,
+    extra_requirements: list[str] | None = None,
     verbose: bool = False,
     dry_run: bool = False,
 ):
@@ -164,22 +160,21 @@ def create_odoo_venv(
             sys.exit(1)
 
     current_default_env = default_environment()
-    target_env_for_markers = current_default_env.copy()
+    target_env_for_markers: dict[str, str] = {k: str(v) for k, v in current_default_env.items()}
     if python_version:
-        target_env_for_markers["python_version"] = ".".join(
-            python_version.split(".")[:2]
-        )
+        target_env_for_markers["python_version"] = ".".join(python_version.split(".")[:2])
         target_env_for_markers["python_full_version"] = python_version
     else:
         target_env_for_markers["python_version"] = current_default_env["python_version"]
-        target_env_for_markers["python_full_version"] = current_default_env[
-            "python_full_version"
-        ]
+        target_env_for_markers["python_full_version"] = current_default_env["python_full_version"]
 
     # 2. Create virtual environment
     typer.secho("Creating virtual environment...")
+    venv_command = ["uv", "venv", str(venv_dir)]
+    if python_version:
+        venv_command.extend(["--python", python_version])
     _run_command(
-        ["uv", "venv", str(venv_dir), "--python", python_version],
+        venv_command,
         verbose=verbose,
         dry_run=dry_run,
     )
@@ -215,29 +210,13 @@ def create_odoo_venv(
 
     ignore_req_lines = []
     if ignore_from_odoo_requirements:
-        ignore_req_lines.extend(
-            [
-                pkg.strip()
-                for pkg in ignore_from_odoo_requirements.split(",")
-                if pkg.strip()
-            ]
-        )
+        ignore_req_lines.extend([pkg.strip() for pkg in ignore_from_odoo_requirements.split(",") if pkg.strip()])
     if ignore_from_addons_dirs_requirements:
-        ignore_req_lines.extend(
-            [
-                pkg.strip()
-                for pkg in ignore_from_addons_dirs_requirements.split(",")
-                if pkg.strip()
-            ]
-        )
+        ignore_req_lines.extend([pkg.strip() for pkg in ignore_from_addons_dirs_requirements.split(",") if pkg.strip()])
     if ignore_from_addons_manifests_requirements:
-        ignore_req_lines.extend(
-            [
-                pkg.strip()
-                for pkg in ignore_from_addons_manifests_requirements.split(",")
-                if pkg.strip()
-            ]
-        )
+        ignore_req_lines.extend([
+            pkg.strip() for pkg in ignore_from_addons_manifests_requirements.split(",") if pkg.strip()
+        ])
 
     ignored_req_map = defaultdict(list)
     for req_line in ignore_req_lines:
@@ -253,42 +232,34 @@ def create_odoo_venv(
                 fg=typer.colors.RED,
             )
 
-    with tempfile.NamedTemporaryFile(
-        mode="w", delete=False, suffix=".txt", encoding="utf-8"
-    ) as tmp:
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt", encoding="utf-8") as tmp:
         tmp_path = tmp.name
         req_count = 0
 
         if all_req_files:
             for req_file in all_req_files:
-                with open(req_file, "r", encoding="utf-8") as f:
+                with open(req_file, encoding="utf-8") as f:
                     for line in f:
-                        if _process_requirement_line(
-                            line, ignored_req_map, tmp, target_env_for_markers
-                        ):
+                        if _process_requirement_line(line, ignored_req_map, tmp, target_env_for_markers):
                             req_count += 1
 
         if extra_requirements:
             for req_line in extra_requirements:
-                if _process_requirement_line(
-                    req_line, ignored_req_map, tmp, target_env_for_markers
-                ):
+                if _process_requirement_line(req_line, ignored_req_map, tmp, target_env_for_markers):
                     req_count += 1
 
         if extra_requirements_file:
             extra_req_file = Path(extra_requirements_file).expanduser().resolve()
             if extra_req_file.exists():
-                with open(extra_req_file, "r", encoding="utf-8") as f:
+                with open(extra_req_file, encoding="utf-8") as f:
                     for line in f:
-                        if _process_requirement_line(
-                            line, ignored_req_map, tmp, target_env_for_markers
-                        ):
+                        if _process_requirement_line(line, ignored_req_map, tmp, target_env_for_markers):
                             req_count += 1
 
         if install_addons_manifests_requirements and addons_paths:
             manifest_files = _find_manifest_files(addons_paths)
             for manifest_file in manifest_files:
-                with open(manifest_file, "r", encoding="utf-8") as f:
+                with open(manifest_file, encoding="utf-8") as f:
                     content = f.read()
                     manifest = ast.literal_eval(content)
                     if "external_dependencies" in manifest and isinstance(
@@ -322,16 +293,14 @@ def create_odoo_venv(
                 for pkg_name in sorted(ignored_req_map.keys()):
                     for req in ignored_req_map[pkg_name]:
                         typer.secho(f"      - {req}", fg=typer.colors.YELLOW)
-            with open(tmp_path, "r", encoding="utf-8") as f:
+            with open(tmp_path, encoding="utf-8") as f:
                 requirements = f.read().splitlines()
                 typer.secho("   Packages to install:", fg=typer.colors.BLUE)
                 for req in requirements:
                     typer.secho(f"      - {req}", fg=typer.colors.CYAN)
 
         _run_command(install_args, venv_dir=venv_dir, verbose=False, dry_run=dry_run)
-        typer.secho(
-            f"  ✔  {typer.style(req_count, fg=typer.colors.YELLOW)} Packages installed successfully"
-        )
+        typer.secho(f"  ✔  {typer.style(req_count, fg=typer.colors.YELLOW)} Packages installed successfully")
 
     os.remove(tmp_path)
 
