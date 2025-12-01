@@ -9,7 +9,9 @@ from packaging.version import Version
 
 ROOT_PATH = Path("~/.local/share/odoo-venv/").expanduser()
 PRESETS_FILE = "presets.toml"
+USER_PRESETS_PATH = ROOT_PATH / PRESETS_FILE
 MODULE_PATH = Path(__file__).parent
+DEFAULT_PRESETS_PATH = MODULE_PATH / "assets" / PRESETS_FILE
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
@@ -38,27 +40,14 @@ def initialize_presets():
     if not ROOT_PATH.exists():
         ROOT_PATH.mkdir(parents=True)
 
-    user_presets_path = ROOT_PATH / PRESETS_FILE
-    if not user_presets_path.exists():
-        default_presets_path = MODULE_PATH / "assets" / PRESETS_FILE
+    if not USER_PRESETS_PATH.exists():
         # copy default presets and store in root_path
-        user_presets_path.write_text(default_presets_path.read_text())
+        USER_PRESETS_PATH.write_text(DEFAULT_PRESETS_PATH.read_text())
 
 
-def load_presets() -> dict[str, Preset]:  # noqa: C901
-    default_presets_path = MODULE_PATH / "assets" / PRESETS_FILE
-    with open(default_presets_path, "rb") as f:
+def load_presets() -> dict[str, Preset]:
+    with open(USER_PRESETS_PATH, "rb") as f:
         presets_data = tomli.load(f)
-
-    user_presets_path = ROOT_PATH / PRESETS_FILE
-    if user_presets_path.exists():
-        with open(user_presets_path, "rb") as f:
-            user_presets = tomli.load(f)
-            for preset_name, options in user_presets.items():
-                if preset_name in presets_data:
-                    presets_data[preset_name].update(options)
-                else:
-                    presets_data[preset_name] = options
 
     if "common" in presets_data:
         common_options = presets_data["common"]

@@ -9,6 +9,7 @@ from odoo_venv.main import create_odoo_venv
 from odoo_venv.utils import initialize_presets, load_presets, run_migration
 
 app = typer.Typer()
+initialize_presets()
 run_migration()
 # we use same python versions as OCA: https://github.com/oca/oca-ci/blob/master/.github/workflows/ci.yaml
 # with some adjustments based on our experience
@@ -29,7 +30,6 @@ def preset_callback(ctx: typer.Context, param: typer.CallbackParam, value: str):
     if not value:
         return None
 
-    initialize_presets()
     all_presets = load_presets()
     if value not in all_presets:
         raise PresetNotFoundError(value)
