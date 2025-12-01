@@ -7,8 +7,28 @@ import re
 import tempfile
 import typer
 from typing import Optional, List
+from collections import defaultdict
+from packaging.requirements import Requirement, InvalidRequirement
+from packaging.markers import default_environment
+from packaging.version import parse as parse_version
+
 
 PKG_NAME_PATTERN = re.compile(r"(?P<lib_name>[a-z0-9A-Z\-\_\.]+)((>|<|=)=)?(.*)")
+
+
+def _keep_if_marker_matches(req_line: str, env: dict | None = None) -> str | None:
+    req_line = req_line.split("#")[0].strip()
+    if not req_line:
+        return None
+    req = Requirement(req_line)
+    env = env or default_environment()
+
+    if req.marker and not req.marker.evaluate(env):
+        return None
+
+    # extras = f"[{','.join(sorted(req.extras))}]" if req.extras else ""
+    spec = str(req.specifier)  # e.g. "==22.10.2"
+    return f"{req.name}{spec}"
 
 
 def _run_command(
@@ -63,6 +83,50 @@ def _find_manifest_files(addons_paths: List[str]) -> List[Path]:
     return manifest_files
 
 
+def _process_requirement_line(
+    req_line: str,
+    ignored_req_map: dict,
+    tmp_file,
+    target_env_for_markers: dict,
+) -> bool:
+    req_line = req_line.strip()
+    if not req_line or req_line.startswith("#"):
+        return False
+
+    try:
+        valid_line = _keep_if_marker_matches(req_line, env=target_env_for_markers)
+        if not valid_line:
+            return False
+
+        req = Requirement(valid_line)
+
+        should_ignore = False
+        if req.name.lower() in ignored_req_map:
+            for ignored_req in ignored_req_map[req.name.lower()]:
+                if not ignored_req.specifier or (
+                    req.specifier
+                    and (req.specifier & ignored_req.specifier) == req.specifier
+                ):
+                    should_ignore = True
+                    break
+
+        if should_ignore:
+            return False
+
+        tmp_file.write(valid_line + "\n")
+        return True
+
+    except InvalidRequirement:
+        match = PKG_NAME_PATTERN.match(req_line)
+        if match:
+            pkg_name = match.group("lib_name").lower().strip()
+            if pkg_name in ignored_req_map:
+                return False
+
+        tmp_file.write(req_line + "\n")
+        return True
+
+
 def create_odoo_venv(
     odoo_version: str,
     odoo_dir: str,
@@ -87,6 +151,30 @@ def create_odoo_venv(
     # 1. Determine Python version
     if not python_version:
         python_version = _get_python_version_from_odoo_src(odoo_dir)
+
+    # uv does not support older Python version
+    # https://github.com/astral-sh/uv/issues/9833
+    if python_version:
+        py_major_minor = ".".join(python_version.split(".")[:2])
+        if parse_version(py_major_minor) < parse_version("3.7"):
+            typer.secho(
+                f"error: Invalid version request: Python <3.7 is not supported but {python_version} was requested.",
+                fg=typer.colors.RED,
+            )
+            sys.exit(1)
+
+    current_default_env = default_environment()
+    target_env_for_markers = current_default_env.copy()
+    if python_version:
+        target_env_for_markers["python_version"] = ".".join(
+            python_version.split(".")[:2]
+        )
+        target_env_for_markers["python_full_version"] = python_version
+    else:
+        target_env_for_markers["python_version"] = current_default_env["python_version"]
+        target_env_for_markers["python_full_version"] = current_default_env[
+            "python_full_version"
+        ]
 
     # 2. Create virtual environment
     typer.secho("Creating virtual environment...")
@@ -125,31 +213,45 @@ def create_odoo_venv(
             if addons_req_file.exists():
                 all_req_files.append(addons_req_file)
 
-    to_ignore = set()
+    ignore_req_lines = []
     if ignore_from_odoo_requirements:
-        to_ignore.update(
-            {
-                pkg.strip().lower()
+        ignore_req_lines.extend(
+            [
+                pkg.strip()
                 for pkg in ignore_from_odoo_requirements.split(",")
                 if pkg.strip()
-            }
+            ]
         )
     if ignore_from_addons_dirs_requirements:
-        to_ignore.update(
-            {
-                pkg.strip().lower()
+        ignore_req_lines.extend(
+            [
+                pkg.strip()
                 for pkg in ignore_from_addons_dirs_requirements.split(",")
                 if pkg.strip()
-            }
+            ]
         )
     if ignore_from_addons_manifests_requirements:
-        to_ignore.update(
-            {
-                pkg.strip().lower()
+        ignore_req_lines.extend(
+            [
+                pkg.strip()
                 for pkg in ignore_from_addons_manifests_requirements.split(",")
                 if pkg.strip()
-            }
+            ]
         )
+
+    ignored_req_map = defaultdict(list)
+    for req_line in ignore_req_lines:
+        try:
+            req = Requirement(req_line)
+            if not req.marker or req.marker.evaluate(target_env_for_markers):
+                new_req_str = f"{req.name}{req.specifier}"
+                new_req = Requirement(new_req_str)
+                ignored_req_map[new_req.name.lower()].append(new_req)
+        except InvalidRequirement:
+            typer.secho(
+                f"  ⚠ Invalid requirement in ignore list: {req_line}",
+                fg=typer.colors.RED,
+            )
 
     with tempfile.NamedTemporaryFile(
         mode="w", delete=False, suffix=".txt", encoding="utf-8"
@@ -161,35 +263,27 @@ def create_odoo_venv(
             for req_file in all_req_files:
                 with open(req_file, "r", encoding="utf-8") as f:
                     for line in f:
-                        line = line.strip()
-                        if not line or line.startswith("#"):
-                            continue
-                        match = PKG_NAME_PATTERN.match(line)
-                        if match:
-                            pkg_name = match.group("lib_name").lower().strip()
-                            if pkg_name in to_ignore:
-                                continue
-                        tmp.write(line + "\n")
-                        req_count += 1
+                        if _process_requirement_line(
+                            line, ignored_req_map, tmp, target_env_for_markers
+                        ):
+                            req_count += 1
 
         if extra_requirements:
-            for req in extra_requirements:
-                req = req.strip()
-                if not req:
-                    continue
-                tmp.write(req + "\n")
-                req_count += 1
+            for req_line in extra_requirements:
+                if _process_requirement_line(
+                    req_line, ignored_req_map, tmp, target_env_for_markers
+                ):
+                    req_count += 1
 
         if extra_requirements_file:
             extra_req_file = Path(extra_requirements_file).expanduser().resolve()
             if extra_req_file.exists():
                 with open(extra_req_file, "r", encoding="utf-8") as f:
                     for line in f:
-                        line = line.strip()
-                        if not line or line.startswith("#"):
-                            continue
-                        tmp.write(line + "\n")
-                        req_count += 1
+                        if _process_requirement_line(
+                            line, ignored_req_map, tmp, target_env_for_markers
+                        ):
+                            req_count += 1
 
         if install_addons_manifests_requirements and addons_paths:
             manifest_files = _find_manifest_files(addons_paths)
@@ -201,13 +295,13 @@ def create_odoo_venv(
                         manifest["external_dependencies"].get("python"), list
                     ):
                         for dep in manifest["external_dependencies"]["python"]:
-                            match = PKG_NAME_PATTERN.match(dep)
-                            if match:
-                                pkg_name = match.group("lib_name").lower().strip()
-                                if pkg_name in to_ignore:
-                                    continue
-                            tmp.write(dep + "\n")
-                            req_count += 1
+                            if _process_requirement_line(
+                                dep,
+                                ignored_req_map,
+                                tmp,
+                                target_env_for_markers,
+                            ):
+                                req_count += 1
 
     if req_count > 0:
         install_args = [
@@ -220,10 +314,14 @@ def create_odoo_venv(
         ]
         typer.secho("\nInstalling required packages...")
         if verbose:
-            if to_ignore:
-                typer.secho("   Packages to ignore:", fg=typer.colors.BLUE)
-                for pkg in sorted(list(to_ignore)):
-                    typer.secho(f"      - {pkg}", fg=typer.colors.YELLOW)
+            if ignored_req_map:
+                typer.secho(
+                    "   Packages to ignore:",
+                    fg=typer.colors.BLUE,
+                )
+                for pkg_name in sorted(ignored_req_map.keys()):
+                    for req in ignored_req_map[pkg_name]:
+                        typer.secho(f"      - {req}", fg=typer.colors.YELLOW)
             with open(tmp_path, "r", encoding="utf-8") as f:
                 requirements = f.read().splitlines()
                 typer.secho("   Packages to install:", fg=typer.colors.BLUE)
