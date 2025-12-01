@@ -6,12 +6,21 @@ readme = "README.md"
 authors = [
     { name = "trisdoan", email = "doanminhtri8183@gmail.com" }
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.10"
+license = "AGPL-3.0"
+license-files = ["LICENSE"]
 dependencies = [
     "typer",
     "typing_extensions",
     "tomli",
     "packaging>=25.0",
+]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=2.20.0",
+    "ty>=0.0.1a16",
+    "ruff>=0.11.5",
 ]
 
 [project.scripts]
@@ -21,3 +30,29 @@ odoo-venv = "odoo_venv.cli.main:app"
 [build-system]
 requires = ["uv_build>=0.8.18,<0.9.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "odoo_venv"
+module-root = ""
+
+[project.optional-dependencies]
+build = ["uv ~= 0.7.12"]
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+build_command = """
+  python -m pip install -e '.[build]'
+  uv lock --upgrade-package odoo-venv
+  git add uv.lock
+  uv build
+"""
+
+[tool.semantic_release.changelog]
+exclude_commit_patterns = [
+    '''chore(?:\([^)]*?\))?: .+''',
+    '''ci(?:\([^)]*?\))?: .+''',
+    '''style(?:\([^)]*?\))?: .+''',
+    '''test(?:\([^)]*?\))?: .+''',
+    '''build\((?!deps\): .+)''',
+    '''initial commit.*''',
+]

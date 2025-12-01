@@ -1,6 +1,6 @@
 # odoo-venv
 
-A command-line tool to spin up isolated Odoo dev environment in seconds. 
+A command-line tool to spin up isolated Odoo dev environment in seconds.
 
 ## Installation
 ```bash
@@ -32,7 +32,7 @@ This command creates a virtual environment for Odoo 17.0 with the following spec
 
 ### 2. Using Presets
 
-For recurring configurations, you can define presets in a `presets.toml` file, in `~/.local/share/odoo-venv/`. 
+For recurring configurations, you can define presets in a `presets.toml` file, in `~/.local/share/odoo-venv/`.
 
 There are 4 out-of-box presets: local, demo, project, ci (see [src/odoo_venv/assets/presets.toml](src/odoo_venv/assets/presets.toml))
 
