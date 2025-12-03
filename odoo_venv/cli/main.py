@@ -6,10 +6,10 @@ import typer
 
 from odoo_venv.exceptions import PresetNotFoundError
 from odoo_venv.main import create_odoo_venv
-from odoo_venv.utils import initialize_presets, load_presets
+from odoo_venv.utils import initialize_presets, load_presets, run_migration
 
 app = typer.Typer()
-
+run_migration()
 # we use same python versions as OCA: https://github.com/oca/oca-ci/blob/master/.github/workflows/ci.yaml
 # with some adjustments based on our experience
 # we don't define a specific minor version here, but can be done via --python-version=
