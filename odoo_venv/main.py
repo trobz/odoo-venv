@@ -51,12 +51,13 @@ def _run_command(
     result = subprocess.run(  # noqa: S603
         command,
         env=env,
-        capture_output=True,
+        capture_output=not verbose,
         text=True,
         cwd=cwd,
     )
     if result.returncode != 0:
-        typer.echo(result.stderr, file=sys.stderr)
+        if not verbose:
+            typer.echo(result.stderr, file=sys.stderr)
         sys.exit(1)
     return result
 
@@ -185,8 +186,12 @@ def create_odoo_venv(  # noqa: C901
     # 3. Install Odoo in editable mode
     if install_odoo:
         typer.secho("\nInstalling Odoo in editable mode...")
+        cmd = ["uv", "pip", "install", "-e", f"file://{odoo_dir}#egg=odoo"]
+        if verbose:
+            cmd.append("-v")
+
         _run_command(
-            ["uv", "pip", "install", "-e", f"file://{odoo_dir}#egg=odoo"],
+            cmd,
             venv_dir=venv_dir,
             verbose=verbose,
             dry_run=dry_run,
