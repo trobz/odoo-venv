@@ -121,6 +121,14 @@ def create(
             help="Use a preset of options. Preset values can be overriden by other options.",
         ),
     ] = None,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            "-f",
+            help="Force recreation of the virtual environment, ignoring cache.",
+        ),
+    ] = False,
 ):
     """Create virtual environment to run Odoo"""
     if not odoo_dir:
@@ -161,4 +169,5 @@ def create(
         extra_requirements=extra_requirements_list,
         verbose=verbose,
         dry_run=dry_run,
+        force=force,
     )
