@@ -65,7 +65,7 @@ description = """
 
 install_addons_dirs_requirements = true
 install_addons_manifests_requirements = true
-extra_requirement = "debugpy,ipython,setproctitle,watchdog,jingtrang,websocket-client,coverage,pylint-odoo,astroid,pdfminer.six,fonttools"
+extra_requirement = "debugpy,ipython,setproctitle,watchdog,jingtrang,websocket-client,coverage,pylint-odoo,astroid,pdfminer.six,fonttools,freezegun"
 
 [demo]
 
@@ -99,4 +99,4 @@ description = """
 install_addons_dirs_requirements = true
 install_addons_manifests_requirements = true
 extra_requirements_file = "./requirements.txt"
-extra_requirement = "websocket-client,coverage,pylint,astroid,pdfminer.six,fonttools"
+extra_requirement = "websocket-client,coverage,pylint,astroid,pdfminer.six,fonttools,freezegun"
