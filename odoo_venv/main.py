@@ -279,7 +279,6 @@ def create_odoo_venv(  # noqa: C901
             "uv",
             "pip",
             "install",
-            "--no-deps",
             "-r",
             tmp_path,
         ]
