@@ -34,7 +34,7 @@ This command creates a virtual environment for Odoo 17.0 with the following spec
 
 For recurring configurations, you can define presets in a `presets.toml` file, in `~/.local/share/odoo-venv/`.
 
-There are 4 out-of-box presets: local, demo, project, ci (see [src/odoo_venv/assets/presets.toml](src/odoo_venv/assets/presets.toml))
+There are 4 out-of-box presets: local, demo, project, ci (see [odoo_venv/assets/presets.toml](odoo_venv/assets/presets.toml))
 
 **Example:**
 
