@@ -44,6 +44,11 @@ def preset_callback(ctx: typer.Context, param: typer.CallbackParam, value: str):
     return value
 
 
+@app.callback()
+def main_callback():
+    pass
+
+
 @app.command()
 def create(
     ctx: typer.Context,
