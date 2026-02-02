@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.0.2 (2026-02-02)
+
+### Bug Fixes
+
+- **cli**: Prevent Typer from collapsing 'create' command
+  ([`74b9994`](https://github.com/trobz/odoo-venv/commit/74b99945aefb5e0e59e092f6f27ea62f12b049bc))
+
+
 ## v1.0.1 (2026-01-19)
 
 ### Bug Fixes
