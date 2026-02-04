@@ -1,4 +1,5 @@
 from dataclasses import asdict
+from importlib.metadata import version
 from pathlib import Path
 from typing import Annotated
 
@@ -44,8 +45,25 @@ def preset_callback(ctx: typer.Context, param: typer.CallbackParam, value: str):
     return value
 
 
+def version_callback(value: bool):
+    if value:
+        typer.echo(f"odoo-venv {version('odoo-venv')}")
+        raise typer.Exit()
+
+
 @app.callback()
-def main_callback():
+def main_callback(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            "-V",
+            callback=version_callback,
+            is_eager=True,
+            help="Display the odoo-venv version.",
+        ),
+    ] = False,
+):
     pass
 
 
