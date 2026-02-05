@@ -87,6 +87,10 @@ def _process_requirement_line(
     ignored_req_map: dict,
     tmp_file,
     target_env_for_markers: dict[str, str],
+    run_now: bool = False,
+    venv_dir: Path | None = None,
+    verbose: bool = False,
+    dry_run: bool = False,
 ) -> bool:
     req_line = req_line.strip()
     if not req_line or req_line.startswith("#"):
@@ -110,6 +114,14 @@ def _process_requirement_line(
 
         if should_ignore:
             return False
+        elif run_now:
+            _run_command(
+                ["uv", "pip", "install", valid_line],
+                venv_dir=venv_dir,
+                verbose=verbose,
+                dry_run=dry_run,
+            )
+            return True
         else:
             tmp_file.write(valid_line + "\n")
             return True
@@ -182,20 +194,7 @@ def create_odoo_venv(  # noqa: C901
         f"  ✔ Virtual environment created at {typer.style(str(venv_dir), fg=typer.colors.YELLOW)}",
     )
 
-    # 3. Install Odoo in editable mode
-    if install_odoo:
-        typer.secho("\nInstalling Odoo in editable mode...")
-        _run_command(
-            ["uv", "pip", "install", "-e", f"file://{odoo_dir}#egg=odoo"],
-            venv_dir=venv_dir,
-            verbose=verbose,
-            dry_run=dry_run,
-        )
-        typer.secho(
-            "  ✔  Installed Odoo in editable mode",
-        )
-
-    # 4. Install requirements
+    # 3. Install requirements
     all_req_files = []
     if install_odoo_requirements:
         odoo_reqs_file = odoo_dir / "requirements.txt"
@@ -245,7 +244,16 @@ def create_odoo_venv(  # noqa: C901
 
         if extra_requirements:
             for req_line in extra_requirements:
-                if _process_requirement_line(req_line, ignored_req_map, tmp, target_env_for_markers):
+                if _process_requirement_line(
+                    req_line,
+                    ignored_req_map,
+                    tmp,
+                    target_env_for_markers,
+                    run_now=True,
+                    venv_dir=venv_dir,
+                    verbose=verbose,
+                    dry_run=dry_run,
+                ):
                     req_count += 1
 
         if extra_requirements_file:
@@ -300,6 +308,19 @@ def create_odoo_venv(  # noqa: C901
 
         _run_command(install_args, venv_dir=venv_dir, verbose=False, dry_run=dry_run)
         typer.secho(f"  ✔  {typer.style(req_count, fg=typer.colors.YELLOW)} Packages installed successfully")
+
+    # 4. Install Odoo in editable mode
+    if install_odoo:
+        typer.secho("\nInstalling Odoo in editable mode...")
+        _run_command(
+            ["uv", "pip", "install", "-e", f"file://{odoo_dir}#egg=odoo"],
+            venv_dir=venv_dir,
+            verbose=verbose,
+            dry_run=dry_run,
+        )
+        typer.secho(
+            "  ✔  Installed Odoo in editable mode",
+        )
 
     os.remove(tmp_path)
 

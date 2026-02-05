@@ -50,7 +50,8 @@ greenlet==1.1.2; sys_platform != 'win32' and python_version == '3.10'
 """
 extra_requirement = """
 gevent==22.10.2; sys_platform != 'win32' and python_version == '3.10',
-greenlet==2.0.2; sys_platform != 'win32' and python_version == '3.10'
+greenlet==2.0.2; sys_platform != 'win32' and python_version == '3.10',
+setuptools<58.0.0
 """
 
 # always ignore those exotic requirements unless explicitely added
