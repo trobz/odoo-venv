@@ -1,4 +1,5 @@
 import ast
+import operator
 import os
 import re
 import subprocess
@@ -8,11 +9,134 @@ from collections import defaultdict
 from pathlib import Path
 
 import typer
-from packaging.markers import default_environment
+from packaging.markers import Marker, default_environment
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.version import parse as parse_version
 
 PKG_NAME_PATTERN = re.compile(r"(?P<lib_name>[a-z0-9A-Z\-\_\.]+)((>|<|=)=)?(.*)")
+
+_COMPARISON_OPS = {
+    "<": operator.lt,
+    "<=": operator.le,
+    ">": operator.gt,
+    ">=": operator.ge,
+    "==": operator.eq,
+    "!=": operator.ne,
+}
+
+
+def _evaluate_marker(
+    marker_expr: str,
+    odoo_version: str,
+    python_version: str | None,
+) -> bool:
+    """Evaluate a marker expression, supporting custom variable ``odoo_version``.
+
+    For pure PEP 508 expressions, delegates to ``packaging.markers.Marker``.
+    For expressions containing ``odoo_version``, uses a lightweight custom
+    evaluator that supports version comparisons and boolean ``and``/``or``.
+    """
+    if not marker_expr:
+        return True
+
+    env: dict[str, str] = {**default_environment()}
+    if python_version:
+        env["python_version"] = ".".join(python_version.split(".")[:2])
+        env["python_full_version"] = python_version
+
+    if "odoo_version" not in marker_expr:
+        try:
+            return Marker(marker_expr).evaluate(environment=env)
+        except Exception:
+            return False
+
+    env["odoo_version"] = odoo_version
+    return _evaluate_version_expr(marker_expr, env)
+
+
+def _evaluate_version_expr(marker_expr: str, variables: dict[str, str]) -> bool:
+    """Evaluate a marker expression with version comparisons.
+
+    Handles ``or`` (lower precedence) and ``and`` (higher precedence) boolean
+    operators, and ``<``, ``<=``, ``>``, ``>=``, ``==``, ``!=`` on version-like
+    values looked up from *variables*.
+    """
+    expr = marker_expr.strip()
+
+    # Split on 'or' first (lower precedence = outermost split)
+    if " or " in expr:
+        return any(_evaluate_version_expr(p.strip(), variables) for p in expr.split(" or "))
+
+    if " and " in expr:
+        return all(_evaluate_version_expr(p.strip(), variables) for p in expr.split(" and "))
+
+    # Parse: variable OP 'value'
+    match = re.match(r"(\w+)\s*(<=|>=|<|>|==|!=)\s*['\"]([^'\"]+)['\"]", expr)
+    if not match:
+        return False
+
+    var_name, op_str, compare_value = match.groups()
+    actual_value = variables.get(var_name)
+    if actual_value is None:
+        return False
+
+    try:
+        return _COMPARISON_OPS[op_str](parse_version(actual_value), parse_version(compare_value))
+    except Exception:
+        return _COMPARISON_OPS[op_str](actual_value, compare_value)
+
+
+def _run_commands_for_stage(
+    stage: str,
+    extra_commands: list[dict] | None,
+    odoo_version: str,
+    python_version: str | None,
+    venv_dir: Path,
+    verbose: bool,
+    dry_run: bool,
+):
+    """Run extra commands for a specific stage.
+
+    Args:
+        stage: The stage to run commands for (e.g., 'after_venv', 'after_requirements')
+        extra_commands: List of command dicts with 'command', 'when', 'stage', and optionally 'env' keys
+        odoo_version: The Odoo version
+        python_version: The Python version
+        venv_dir: The virtual environment directory
+        verbose: Whether to print verbose output
+        dry_run: Whether to do a dry run
+    """
+    if not extra_commands:
+        return
+
+    for cmd_spec in extra_commands:
+        cmd_stage = cmd_spec.get("stage")
+        if cmd_stage != stage:
+            continue
+
+        # Check if the 'when' marker evaluates to True
+        when_marker = cmd_spec.get("when", "")
+        if not _evaluate_marker(when_marker, odoo_version, python_version):
+            continue
+
+        command = cmd_spec.get("command")
+        if not command or not isinstance(command, list):
+            continue
+
+        extra_env = cmd_spec.get("env")
+        if extra_env and isinstance(extra_env, dict):
+            # Convert values to strings
+            extra_env = {k: str(v) for k, v in extra_env.items()}
+
+        if verbose:
+            typer.secho(f"\n  📋 Running extra command (stage: {stage})", fg=typer.colors.CYAN)
+            if when_marker:
+                typer.secho(f"     Condition: {when_marker}", fg=typer.colors.CYAN, dim=True)
+            if extra_env:
+                env_str = " ".join(f"{k}={v}" for k, v in extra_env.items())
+                typer.secho(f"     Environment: {env_str}", fg=typer.colors.CYAN, dim=True)
+
+        _run_command(command, venv_dir=venv_dir, verbose=verbose, dry_run=dry_run, extra_env=extra_env)
 
 
 def _keep_if_marker_matches(req_line: str, env: dict | None = None) -> str | None:
@@ -35,6 +159,7 @@ def _run_command(
     cwd: Path | None = None,
     verbose: bool = False,
     dry_run: bool = False,
+    extra_env: dict[str, str] | None = None,
 ):
     if verbose:
         typer.secho(f"  → Running: {' '.join(command)}", fg=typer.colors.BLUE)
@@ -46,6 +171,8 @@ def _run_command(
     if venv_dir:
         env["PATH"] = str(venv_dir / "bin") + os.pathsep + env["PATH"]
         env["VIRTUAL_ENV"] = str(venv_dir)
+    if extra_env:
+        env.update(extra_env)
 
     # safe to ignore S603 as shell=False
     result = subprocess.run(  # noqa: S603
@@ -138,6 +265,7 @@ def create_odoo_venv(  # noqa: C901
     ignore_from_addons_manifests_requirements: str | None = None,
     extra_requirements_file: str | None = None,
     extra_requirements: list[str] | None = None,
+    extra_commands: list[dict] | None = None,
     verbose: bool = False,
     dry_run: bool = False,
 ):
@@ -180,6 +308,17 @@ def create_odoo_venv(  # noqa: C901
     )
     typer.secho(
         f"  ✔ Virtual environment created at {typer.style(str(venv_dir), fg=typer.colors.YELLOW)}",
+    )
+
+    # Run extra commands for 'after_venv' stage
+    _run_commands_for_stage(
+        "after_venv",
+        extra_commands,
+        odoo_version,
+        python_version,
+        venv_dir,
+        verbose,
+        dry_run,
     )
 
     # 3. Install requirements
@@ -290,6 +429,17 @@ def create_odoo_venv(  # noqa: C901
 
     os.remove(tmp_path)
 
+    # Run extra commands for 'after_requirements' stage
+    _run_commands_for_stage(
+        "after_requirements",
+        extra_commands,
+        odoo_version,
+        python_version,
+        venv_dir,
+        verbose,
+        dry_run,
+    )
+
     # 4. Install Odoo in editable mode
     if install_odoo:
         typer.secho("\nInstalling Odoo in editable mode...")
@@ -301,6 +451,17 @@ def create_odoo_venv(  # noqa: C901
         )
         typer.secho(
             "  ✔  Installed Odoo in editable mode",
+        )
+
+        # Run extra commands for 'after_odoo_install' stage
+        _run_commands_for_stage(
+            "after_odoo_install",
+            extra_commands,
+            odoo_version,
+            python_version,
+            venv_dir,
+            verbose,
+            dry_run,
         )
 
     typer.secho("\n✅ Environment setup complete!", fg=typer.colors.GREEN)

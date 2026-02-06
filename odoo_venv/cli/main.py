@@ -40,6 +40,8 @@ def preset_callback(ctx: typer.Context, param: typer.CallbackParam, value: str):
 
     ctx.default_map = ctx.default_map or {}
     ctx.default_map.update(preset_options)
+    # Store extra_commands on ctx.obj (not a CLI option, so default_map won't forward it)
+    ctx.ensure_object(dict)["extra_commands"] = preset_options.get("extra_commands")
     if descr := preset_options["description"]:
         typer.secho(f"Applying preset '{value}': {descr}", fg=typer.colors.GREEN)
     return value
@@ -167,6 +169,9 @@ def create(
         [str(Path(p.strip()).expanduser().resolve()) for p in addons_path.split(",")] if addons_path else None
     )
 
+    # Get extra_commands from preset if available
+    extra_commands = ctx.obj.get("extra_commands") if ctx.obj else None
+
     create_odoo_venv(
         odoo_version=odoo_version,
         odoo_dir=str(odoo_dir_path),
@@ -182,6 +187,7 @@ def create(
         ignore_from_addons_manifests_requirements=ignore_from_addons_manifests_requirements,
         extra_requirements_file=extra_requirements_file,
         extra_requirements=extra_requirements_list,
+        extra_commands=extra_commands,
         verbose=verbose,
         dry_run=dry_run,
     )

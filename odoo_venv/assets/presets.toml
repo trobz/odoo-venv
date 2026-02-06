@@ -33,6 +33,29 @@
 # extra_requirement (string):
 #   Comma-separated list of extra packages to install.
 #
+# extra_commands (array of tables):
+#   Additional commands to run at specific points during venv creation.
+#   Each command can have a 'when' marker to conditionally run based on odoo_version.
+#   Supported stages: 'after_venv', 'after_requirements', 'after_odoo_install'
+#
+#   Example:
+#   [[common.extra_commands]]
+#   command = ["uv", "pip", "install", "setuptools<58.0"]
+#   when = "odoo_version <= '13.0'"
+#   stage = "after_venv"
+#
+#   You can also set environment variables for the command:
+#   [[common.extra_commands]]
+#   command = ["uv", "pip", "install", "vatnumber==1.2"]
+#   when = "odoo_version <= '13.0'"
+#   stage = "after_venv"
+#   env = { UV_NO_BUILD_ISOLATION = "1" }
+#
+#   Available markers in 'when' expressions:
+#   - odoo_version: The Odoo version (e.g., '13.0', '14.0')
+#   - python_version: The Python version (e.g., '3.7', '3.10')
+#   - All standard packaging markers (sys_platform, etc.)
+#
 
 [common]
 
@@ -55,6 +78,19 @@ greenlet==2.0.2; sys_platform != 'win32' and python_version == '3.10'
 
 # always ignore those exotic requirements unless explicitely added
 ignore_from_addons_dirs_requirements = "azure-identity,mysql,mysqlclient,pymssql,cn2an"
+
+# Install setuptools<58.0 for Odoo <= 13.0 (setuptools 58 removed distutils)
+[[common.extra_commands]]
+command = ["uv", "pip", "install", "setuptools<58.0"]
+when = "odoo_version <= '13.0'"
+stage = "after_requirements"
+
+# Install vatnumber==1.2 for Odoo <= 13.0 with build isolation disabled
+[[common.extra_commands]]
+command = ["uv", "pip", "install", "vatnumber==1.2"]
+when = "odoo_version <= '13.0'"
+stage = "after_requirements"
+env = { UV_NO_BUILD_ISOLATION = "1" }
 
 [local]
 
