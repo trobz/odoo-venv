@@ -74,3 +74,12 @@ create_odoo_venv(
     extra_requirements=["debugpy", "ipython"],
 )
 ```
+
+## Development
+
+To test with a clean state (no cached packages, no custom presets):
+
+```bash
+uv cache clean --force
+rm ~/.local/share/odoo-venv/*
+```
