@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v1.1.0 (2026-02-09)
+
+### Documentation
+
+- Add clean-state tips for developers
+  ([`8f0bf75`](https://github.com/trobz/odoo-venv/commit/8f0bf750ccb2bad0c1fbb70b8ac17cc9c9d9b518))
+
+### Features
+
+- Add extra_commands support to presets with odoo_version markers
+  ([`5432ae3`](https://github.com/trobz/odoo-venv/commit/5432ae3a47176a1aab632848813af19a9aeaac5b))
+
+- **cli**: Add -V/--version flag to display version
+  ([`b3d9ffe`](https://github.com/trobz/odoo-venv/commit/b3d9ffe2954e89dafccad6c46de74fb611f9c88b))
+
+
 ## v1.0.2 (2026-02-02)
 
 ### Bug Fixes
