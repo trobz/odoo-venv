@@ -1,10 +1,13 @@
 import ast
+import hashlib
+import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
 from collections import defaultdict
+from datetime import UTC, datetime
 from pathlib import Path
 
 import typer
@@ -13,6 +16,32 @@ from packaging.requirements import InvalidRequirement, Requirement
 from packaging.version import parse as parse_version
 
 PKG_NAME_PATTERN = re.compile(r"(?P<lib_name>[a-z0-9A-Z\-\_\.]+)((>|<|=)=)?(.*)")
+METADATA_FILE = ".odoo-venv.json"
+
+
+def _compute_file_hash(file_path: Path) -> str:
+    if not file_path.exists():
+        return ""
+    return hashlib.sha256(file_path.read_bytes()).hexdigest()
+
+
+def _load_venv_metadata(venv_dir: Path) -> dict | None:
+    metadata_path = venv_dir / METADATA_FILE
+    if not metadata_path.exists():
+        return None
+    try:
+        return json.loads(metadata_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _save_venv_metadata(venv_dir: Path, metadata: dict):
+    """Save metadata to the venv directory."""
+    try:
+        metadata_path = venv_dir / METADATA_FILE
+        metadata_path.write_text(json.dumps(metadata, indent=2))
+    except Exception as e:
+        typer.secho(f"Warning: Failed to save metadata: {e}", fg=typer.colors.YELLOW)
 
 
 def _keep_if_marker_matches(req_line: str, env: dict | None = None) -> str | None:
@@ -51,12 +80,13 @@ def _run_command(
     result = subprocess.run(  # noqa: S603
         command,
         env=env,
-        capture_output=True,
+        capture_output=not verbose,
         text=True,
         cwd=cwd,
     )
     if result.returncode != 0:
-        typer.echo(result.stderr, file=sys.stderr)
+        if not verbose:
+            typer.echo(result.stderr, file=sys.stderr)
         sys.exit(1)
     return result
 
@@ -140,6 +170,7 @@ def create_odoo_venv(  # noqa: C901
     extra_requirements: list[str] | None = None,
     verbose: bool = False,
     dry_run: bool = False,
+    force: bool = False,
 ):
     odoo_dir = Path(odoo_dir).expanduser().resolve()
     venv_dir = Path(venv_dir).expanduser().resolve()
@@ -168,6 +199,24 @@ def create_odoo_venv(  # noqa: C901
         target_env_for_markers["python_version"] = current_default_env["python_version"]
         target_env_for_markers["python_full_version"] = current_default_env["python_full_version"]
 
+    # Compute cache hash for Odoo core requirements
+    odoo_reqs_file = odoo_dir / "requirements.txt"
+    odoo_reqs_hash = _compute_file_hash(odoo_reqs_file)
+
+    venv_python = venv_dir / "bin" / "python"
+    venv_exists = venv_dir.exists() and venv_python.exists()
+    existing_metadata = _load_venv_metadata(venv_dir) if venv_exists else None
+
+    if venv_exists and existing_metadata and not force:
+        existing_py = existing_metadata.get("python_version")
+        if existing_py and python_version and existing_py != python_version:
+            typer.secho(
+                f"error: Python version mismatch. Venv has {existing_py}, but {python_version} was requested.\n"
+                f"       Use --force to recreate the virtual environment.",
+                fg=typer.colors.RED,
+            )
+            sys.exit(1)
+
     # 2. Create virtual environment
     typer.secho("Creating virtual environment...")
     venv_command = ["uv", "venv", str(venv_dir)]
@@ -184,16 +233,29 @@ def create_odoo_venv(  # noqa: C901
 
     # 3. Install Odoo in editable mode
     if install_odoo:
-        typer.secho("\nInstalling Odoo in editable mode...")
-        _run_command(
-            ["uv", "pip", "install", "-e", f"file://{odoo_dir}#egg=odoo"],
-            venv_dir=venv_dir,
-            verbose=verbose,
-            dry_run=dry_run,
-        )
-        typer.secho(
-            "  ✔  Installed Odoo in editable mode",
-        )
+        skip_install = False
+        if existing_metadata and not force:
+            existing_odoo_hash = existing_metadata.get("odoo_requirements_hash")
+            if existing_odoo_hash == odoo_reqs_hash:
+                skip_install = True
+
+        if skip_install:
+            typer.secho("\nSkipping Odoo editable installation (requirements unchanged)", fg=typer.colors.YELLOW)
+        else:
+            typer.secho("\nInstalling Odoo in editable mode...")
+            cmd = ["uv", "pip", "install", "-e", f"file://{odoo_dir}#egg=odoo"]
+            if verbose:
+                cmd.append("-v")
+
+            _run_command(
+                cmd,
+                venv_dir=venv_dir,
+                verbose=verbose,
+                dry_run=dry_run,
+            )
+            typer.secho(
+                "  ✔  Installed Odoo in editable mode",
+            )
 
     # 4. Install requirements
     all_req_files = []
@@ -302,6 +364,15 @@ def create_odoo_venv(  # noqa: C901
         typer.secho(f"  ✔  {typer.style(req_count, fg=typer.colors.YELLOW)} Packages installed successfully")
 
     os.remove(tmp_path)
+
+    metadata = {
+        "python_version": python_version,
+        "odoo_requirements_hash": odoo_reqs_hash,
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+
+    if not dry_run:
+        _save_venv_metadata(venv_dir, metadata)
 
     typer.secho("\n✅ Environment setup complete!", fg=typer.colors.GREEN)
     typer.secho(
