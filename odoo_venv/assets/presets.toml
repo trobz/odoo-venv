@@ -56,6 +56,19 @@
 #   - python_version: The Python version (e.g., '3.7', '3.10')
 #   - All standard packaging markers (sys_platform, etc.)
 #
+#   Marker syntax examples:
+#     when = "odoo_version <= '13.0'"                          # Single condition
+#     when = "odoo_version == '13.0' or odoo_version == '12.0'" # OR: runs if either is true
+#     when = "odoo_version <= '13.0' and python_version >= '3.7'" # AND: runs only if both are true
+#     when = "odoo_version == '13.0' or odoo_version == '14.0' and python_version == '3.8'"
+#            # ↑ Evaluates as: odoo_version == '13.0' or (odoo_version == '14.0' and python_version == '3.8')
+#            # 'and' has higher precedence than 'or' (binds tighter)
+#     when = ""  # Empty = always runs (same as omitting 'when')
+#
+#   Limitations:
+#   - Parentheses NOT supported - cannot write: (a or b) and c
+#   - Use precedence: 'and' binds tighter than 'or'
+#
 
 [common]
 

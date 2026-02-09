@@ -15,6 +15,8 @@ from packaging.version import parse as parse_version
 
 PKG_NAME_PATTERN = re.compile(r"(?P<lib_name>[a-z0-9A-Z\-\_\.]+)((>|<|=)=)?(.*)")
 
+VALID_STAGES = {"after_venv", "after_requirements", "after_odoo_install"}
+
 _COMPARISON_OPS = {
     "<": operator.lt,
     "<=": operator.le,
@@ -35,6 +37,9 @@ def _evaluate_marker(
     For pure PEP 508 expressions, delegates to ``packaging.markers.Marker``.
     For expressions containing ``odoo_version``, uses a lightweight custom
     evaluator that supports version comparisons and boolean ``and``/``or``.
+
+    Note: if *python_version* is None, marker evaluation uses the system
+    Python version from ``packaging.markers.default_environment()``.
     """
     if not marker_expr:
         return True
@@ -86,6 +91,43 @@ def _evaluate_version_expr(marker_expr: str, variables: dict[str, str]) -> bool:
         return _COMPARISON_OPS[op_str](actual_value, compare_value)
 
 
+def _validate_cmd_spec(cmd_spec: dict, i: int, stage: str, is_first: bool) -> bool:
+    """Check if command should run at this stage, warn on unknown stages."""
+    cmd_stage = cmd_spec.get("stage")
+    if is_first and cmd_stage and cmd_stage not in VALID_STAGES:
+        typer.secho(
+            f"  ⚠  extra_command[{i}]: unknown stage '{cmd_stage}' (valid: {', '.join(sorted(VALID_STAGES))})",
+            fg=typer.colors.YELLOW,
+        )
+    return cmd_stage == stage
+
+
+def _print_cmd_info(cmd_spec: dict, stage: str, verbose: bool):
+    """Print verbose info about command execution."""
+    if not verbose:
+        return
+    when_marker = cmd_spec.get("when", "")
+    extra_env = cmd_spec.get("env")
+    typer.secho(f"\n  📋 Running extra command (stage: {stage})", fg=typer.colors.CYAN)
+    if when_marker:
+        typer.secho(f"     Condition: {when_marker}", fg=typer.colors.CYAN, dim=True)
+    if extra_env and isinstance(extra_env, dict):
+        env_str = " ".join(f"{k}={v}" for k, v in extra_env.items())
+        typer.secho(f"     Environment: {env_str}", fg=typer.colors.CYAN, dim=True)
+
+
+def _handle_cmd_error(command: list, stage: str, when_marker: str, extra_env: dict | None):
+    """Print error details and exit."""
+    typer.secho(f"\n  ✗ Extra command failed at stage '{stage}':", fg=typer.colors.RED)
+    typer.secho(f"    Command: {' '.join(command)}", fg=typer.colors.RED)
+    if when_marker:
+        typer.secho(f"    Condition: {when_marker}", fg=typer.colors.RED)
+    if extra_env:
+        env_str = " ".join(f"{k}={v}" for k, v in extra_env.items())
+        typer.secho(f"    Environment: {env_str}", fg=typer.colors.RED)
+    sys.exit(1)
+
+
 def _run_commands_for_stage(
     stage: str,
     extra_commands: list[dict] | None,
@@ -109,9 +151,9 @@ def _run_commands_for_stage(
     if not extra_commands:
         return
 
-    for cmd_spec in extra_commands:
-        cmd_stage = cmd_spec.get("stage")
-        if cmd_stage != stage:
+    for i, cmd_spec in enumerate(extra_commands):
+        is_first = i == 0
+        if not _validate_cmd_spec(cmd_spec, i, stage, is_first):
             continue
 
         # Check if the 'when' marker evaluates to True
@@ -121,6 +163,10 @@ def _run_commands_for_stage(
 
         command = cmd_spec.get("command")
         if not command or not isinstance(command, list):
+            typer.secho(
+                f"  ⚠  extra_command[{i}]: missing or invalid 'command' field, skipping",
+                fg=typer.colors.YELLOW,
+            )
             continue
 
         extra_env = cmd_spec.get("env")
@@ -128,15 +174,12 @@ def _run_commands_for_stage(
             # Convert values to strings
             extra_env = {k: str(v) for k, v in extra_env.items()}
 
-        if verbose:
-            typer.secho(f"\n  📋 Running extra command (stage: {stage})", fg=typer.colors.CYAN)
-            if when_marker:
-                typer.secho(f"     Condition: {when_marker}", fg=typer.colors.CYAN, dim=True)
-            if extra_env:
-                env_str = " ".join(f"{k}={v}" for k, v in extra_env.items())
-                typer.secho(f"     Environment: {env_str}", fg=typer.colors.CYAN, dim=True)
+        _print_cmd_info(cmd_spec, stage, verbose)
 
-        _run_command(command, venv_dir=venv_dir, verbose=verbose, dry_run=dry_run, extra_env=extra_env)
+        try:
+            _run_command(command, venv_dir=venv_dir, verbose=verbose, dry_run=dry_run, extra_env=extra_env)
+        except SystemExit:
+            _handle_cmd_error(command, stage, when_marker, extra_env)
 
 
 def _keep_if_marker_matches(req_line: str, env: dict | None = None) -> str | None:
@@ -429,7 +472,10 @@ def create_odoo_venv(  # noqa: C901
 
     os.remove(tmp_path)
 
-    # Run extra commands for 'after_requirements' stage
+    # Installation order: venv → requirements → odoo (editable)
+    # Odoo installed AFTER requirements so that extra_commands at
+    # 'after_requirements' stage can set up build dependencies
+    # (e.g., setuptools<58 for vatnumber on Odoo <= 13.0)
     _run_commands_for_stage(
         "after_requirements",
         extra_commands,
