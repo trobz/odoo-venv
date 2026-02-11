@@ -1,12 +1,14 @@
-import re
 from dataclasses import asdict
 from importlib.metadata import version
 from pathlib import Path
 from typing import Annotated
 
 import typer
-from odoo_addons_path import get_addons_path
-from odoo_addons_path.main import _detect_codebase_layout
+from odoo_addons_path import (
+    detect_codebase_layout,
+    get_addons_path,
+    get_odoo_version_from_release,
+)
 
 from odoo_venv.exceptions import PresetNotFoundError
 from odoo_venv.launcher import create_launcher
@@ -49,18 +51,6 @@ def preset_callback(ctx: typer.Context, param: typer.CallbackParam, value: str):
     if descr := preset_options["description"]:
         typer.secho(f"Applying preset '{value}': {descr}", fg=typer.colors.GREEN)
     return value
-
-
-def _get_odoo_version_from_release(odoo_dir: Path) -> str | None:
-    """Read the Odoo version (e.g. '18.0') from ``odoo/release.py``."""
-    release_py = odoo_dir / "odoo" / "release.py"
-    if not release_py.is_file():
-        return None
-    content = release_py.read_text()
-    match = re.search(r"version_info\s*=\s*\((\d+),\s*(\d+)", content)
-    if match:
-        return f"{match.group(1)}.{match.group(2)}"
-    return None
 
 
 def project_dir_callback(ctx: typer.Context, param: typer.CallbackParam, value: str | None):
@@ -200,8 +190,11 @@ def create(  # noqa: C901
     detected_addons_path = None
     if project_dir_value:
         project_dir_path = Path(project_dir_value).expanduser().resolve()
-        detected_paths = _detect_codebase_layout(project_dir_path)
-        detected_addons_path = get_addons_path(project_dir_path)
+        detected_paths = detect_codebase_layout(project_dir_path)
+        detected_addons_path = get_addons_path(
+            project_dir_path,
+            detected_paths=detected_paths,
+        )
 
     # Resolve odoo_dir (before odoo_version, which may be inferred from it)
     if odoo_dir:
@@ -219,7 +212,7 @@ def create(  # noqa: C901
 
     # Infer odoo_version from release.py if not provided
     if not odoo_version:
-        odoo_version = _get_odoo_version_from_release(odoo_dir_path)
+        odoo_version = get_odoo_version_from_release(odoo_dir_path)
         if not odoo_version:
             typer.secho(
                 "error: Could not detect Odoo version from source. Provide ODOO_VERSION explicitly.",
