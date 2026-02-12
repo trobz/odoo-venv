@@ -214,3 +214,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+.claude/
+.opencode/
+plans/
+release-manifest.json

@@ -6,6 +6,7 @@ from typing import Annotated
 import typer
 
 from odoo_venv.exceptions import PresetNotFoundError
+from odoo_venv.launcher import create_launcher
 from odoo_venv.main import create_odoo_venv
 from odoo_venv.utils import initialize_presets, load_presets, run_migration
 
@@ -146,6 +147,13 @@ def create(
             help="Use a preset of options. Preset values can be overriden by other options.",
         ),
     ] = None,
+    create_launcher_flag: Annotated[
+        bool,
+        typer.Option(
+            "--create-launcher/--no-create-launcher",
+            help="Generate a launcher script in ~/.local/bin/.",
+        ),
+    ] = False,
 ):
     """Create virtual environment to run Odoo"""
     if not odoo_dir:
@@ -191,3 +199,17 @@ def create(
         verbose=verbose,
         dry_run=dry_run,
     )
+
+    if create_launcher_flag:
+        create_launcher(odoo_version, venv_dir_path, force=True)
+
+
+@app.command()
+def create_odoo_launcher(
+    odoo_version: Annotated[str, typer.Argument(help="Odoo version, e.g: 19.0")],
+    venv_dir: Annotated[str, typer.Option(help="Path to the virtual environment.")],
+    force: Annotated[bool, typer.Option(help="Overwrite existing launcher script.")] = False,
+):
+    """Generate a launcher script in ~/.local/bin/ for the Odoo environment"""
+    venv_dir_path = Path(venv_dir).expanduser().resolve()
+    create_launcher(odoo_version, venv_dir_path, force=force)

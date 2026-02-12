@@ -86,14 +86,21 @@ greenlet==1.1.2; sys_platform != 'win32' and python_version == '3.10',
 vatnumber
 """
 extra_requirement = """
-gevent==22.10.2; sys_platform != 'win32' and python_version == '3.10',
-greenlet==2.0.2; sys_platform != 'win32' and python_version == '3.10'
+gevent==22.10.2; sys_platform == 'linux' and python_version == '3.10',
+greenlet==2.0.2; sys_platform == 'linux' and python_version == '3.10'
 """
 
 # always ignore those exotic requirements unless explicitely added
 ignore_from_addons_dirs_requirements = "azure-identity,mysql,mysqlclient,pymssql,cn2an"
 
-# Install setuptools<58.0 for Odoo <= 13.0 (setuptools 58 removed 2to3 support)
+# Keep setuptools below versions that break Odoo compatibility:
+# - Odoo <= 13.0 needs setuptools<58.0 (setuptools 58 removed 2to3 support)
+# - Odoo 14.0 to 17.0 needs setuptools<82.0 because pkg_resources is required
+[[common.extra_commands]]
+command = ["uv", "pip", "install", "setuptools<82.0"]
+when = "odoo_version > '13.0' and odoo_version <= '17.0'"
+stage = "after_requirements"
+
 [[common.extra_commands]]
 command = ["uv", "pip", "install", "setuptools<58.0", "wheel"]
 when = "odoo_version <= '13.0'"
