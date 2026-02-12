@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v1.2.0 (2026-02-12)
+
+### Bug Fixes
+
+- Scope gevent override to linux in common preset
+  ([`32d1e0e`](https://github.com/trobz/odoo-venv/commit/32d1e0ee91830e97a2a32c13193c065eba244801))
+
+- **presets**: Pin setuptools below pkg_resources removal
+  ([`3b71e7e`](https://github.com/trobz/odoo-venv/commit/3b71e7eb63701fb263600b81533104602dfcde41))
+
+### Features
+
+- Add Odoo launcher script generation
+  ([`d7a2892`](https://github.com/trobz/odoo-venv/commit/d7a2892545f6e6809a95bedf143dc129b21c7cf3))
+
+
 ## v1.1.0 (2026-02-09)
 
 ### Documentation
