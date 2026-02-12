@@ -4,6 +4,11 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from odoo_addons_path import (
+    detect_codebase_layout,
+    get_addons_path,
+    get_odoo_version_from_release,
+)
 
 from odoo_venv.exceptions import PresetNotFoundError
 from odoo_venv.main import create_odoo_venv
@@ -47,6 +52,18 @@ def preset_callback(ctx: typer.Context, param: typer.CallbackParam, value: str):
     return value
 
 
+def project_dir_callback(ctx: typer.Context, param: typer.CallbackParam, value: str | None):
+    if not value:
+        return None
+
+    # Auto-apply "project" preset if no preset was explicitly set
+    if not ctx.default_map:
+        preset_callback(ctx, param, "project")
+
+    ctx.ensure_object(dict)["project_dir"] = value
+    return value
+
+
 def version_callback(value: bool):
     if value:
         typer.echo(f"odoo-venv {version('odoo-venv')}")
@@ -70,9 +87,11 @@ def main_callback(
 
 
 @app.command()
-def create(
+def create(  # noqa: C901
     ctx: typer.Context,
-    odoo_version: Annotated[str, typer.Argument(help="Odoo version, e.g: 18.0")],
+    odoo_version: Annotated[
+        str | None, typer.Argument(help="Odoo version, e.g: 18.0. Inferred from --project-dir if omitted.")
+    ] = None,
     python_version: Annotated[
         str | None,
         typer.Option("--python-version", "-p", help="Specify Python version."),
@@ -146,12 +165,52 @@ def create(
             help="Use a preset of options. Preset values can be overriden by other options.",
         ),
     ] = None,
+    project_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--project-dir",
+            callback=project_dir_callback,
+            is_eager=True,
+            help="Path to project directory. Auto-detects --addons-path, --odoo-dir "
+            "via odoo-addons-path and applies --preset=project.",
+        ),
+    ] = None,
 ):
     """Create virtual environment to run Odoo"""
-    if not odoo_dir:
+    # Handle --project-dir: auto-detect addons_path and odoo_dir
+    project_dir_value = ctx.obj.get("project_dir") if ctx.obj else None
+    detected_addons_path = None
+    if project_dir_value:
+        project_dir_path = Path(project_dir_value).expanduser().resolve()
+        detected_paths = detect_codebase_layout(project_dir_path)
+        detected_addons_path = get_addons_path(
+            project_dir_path,
+            detected_paths=detected_paths,
+        )
+
+    # Resolve odoo_dir (before odoo_version, which may be inferred from it)
+    if odoo_dir:
+        odoo_dir_path = Path(odoo_dir).expanduser().resolve()
+    elif project_dir_value and detected_paths.get("odoo_dir"):
+        odoo_dir_path = detected_paths["odoo_dir"][0].parent
+    elif odoo_version:
         odoo_dir_path = Path(f"~/code/odoo/odoo/{odoo_version}").expanduser()
     else:
-        odoo_dir_path = Path(odoo_dir).expanduser().resolve()
+        typer.secho(
+            "error: ODOO_VERSION is required when --project-dir is not used.",
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(1)
+
+    # Infer odoo_version from release.py if not provided
+    if not odoo_version:
+        odoo_version = get_odoo_version_from_release(odoo_dir_path)
+        if not odoo_version:
+            typer.secho(
+                "error: Could not detect Odoo version from source. Provide ODOO_VERSION explicitly.",
+                fg=typer.colors.RED,
+            )
+            raise typer.Exit(1)
 
     if not python_version:
         python_version = ODOO_PYTHON_VERSIONS.get(odoo_version)
@@ -164,6 +223,9 @@ def create(
             extra_requirements_list = extra_requirement.split(",")
         else:
             extra_requirements_list = list(extra_requirement)
+
+    if not addons_path and detected_addons_path:
+        addons_path = detected_addons_path
 
     addons_path_list = (
         [str(Path(p.strip()).expanduser().resolve()) for p in addons_path.split(",")] if addons_path else None
