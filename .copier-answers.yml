@@ -1,0 +1,14 @@
+# Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
+_commit: v1.2.0
+_src_path: https://github.com/trobz/trobz-python-template.git
+author_email: doanminhtri8183@gmail.com
+author_username: trisdoan
+enable_github_action: true
+package_name: odoo_venv
+project_description: A command-line tool to spin up isolated Odoo dev environment
+    in seconds.
+project_name: odoo-venv
+project_type: cli
+publish_to_pypi: true
+repository_name: odoo-venv
+repository_namespace: trobz
