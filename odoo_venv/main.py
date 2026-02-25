@@ -341,6 +341,17 @@ def create_odoo_venv(  # noqa: C901
 
     # 2. Create virtual environment
     typer.secho("Creating virtual environment...")
+    if python_version:
+        found = subprocess.run(  # noqa: S603
+            ["uv", "python", "find", python_version],  # noqa: S607
+            capture_output=True,
+        )
+        if found.returncode != 0:
+            _run_command(
+                ["uv", "python", "install", python_version],
+                verbose=verbose,
+                dry_run=dry_run,
+            )
     venv_command = ["uv", "venv", str(venv_dir)]
     if python_version:
         venv_command.extend(["--python", python_version])

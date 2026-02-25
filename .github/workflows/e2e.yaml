@@ -1,0 +1,115 @@
+name: e2e
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "0 4 * * *"
+
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Odoo ${{ matrix.odoo_version }} (Python ${{ matrix.python_version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # conservative python versions, based on
+          # https://github.com/OCA/oca-ci/blob/master/.github/workflows/ci.yaml#L24
+          # and our experience/legacy projects needs
+          - odoo_version: "12.0"
+            python_version: "3.7"
+          - odoo_version: "13.0"
+            python_version: "3.7"
+          - odoo_version: "14.0"
+            python_version: "3.8"
+          - odoo_version: "15.0"
+            python_version: "3.8"
+          - odoo_version: "16.0"
+            python_version: "3.10"
+          - odoo_version: "17.0"
+            python_version: "3.10"
+          - odoo_version: "18.0"
+            python_version: "3.10"
+          - odoo_version: "19.0"
+            python_version: "3.10"
+          # higher python versions
+          - odoo_version: "18.0"
+            python_version: "3.12"
+          - odoo_version: "19.0"
+            python_version: "3.12"
+          - odoo_version: "master"
+            python_version: "3.12"
+          # https://github.com/odoo/odoo/blob/master/odoo/release.py#L40
+          - odoo_version: "master"
+            python_version: "3.13"
+
+    steps:
+      - name: Bootstrap
+        run: |
+          mkdir -p ~/code
+          cat > ~/code/config.toml << 'EOF'
+          versions = ["${{ matrix.odoo_version }}"]
+
+          [tools]
+          uv = ["odoo-addons-path"]
+          system_packages = ["postgresql"]
+
+          [repos]
+          odoo = ["odoo"]
+          EOF
+          # workaround to be able to clone repos without ssh in CI:
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          curl -fsSL https://raw.githubusercontent.com/trobz/local.py/main/bootstrap.sh | bash
+          tlc --no-newcomer install-tools
+          tlc --no-newcomer init
+          echo "TODAY=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+
+      # Cache the Odoo source for the day to avoid cloning on every run.
+      # The key includes the date so the cache is invalidated daily,
+      # ensuring we always test against a fresh Odoo clone each day.
+      - name: Cache Odoo ${{ matrix.odoo_version }}
+        uses: actions/cache@v4
+        with:
+          path: ~/code/odoo/odoo/${{ matrix.odoo_version }}
+          key: odoo-${{ matrix.odoo_version }}-${{ runner.os }}-${{ env.TODAY }}
+
+      - name: Pull repos
+        run: tlc --no-newcomer pull-repos
+
+      - name: Check out odoo-venv
+        uses: actions/checkout@v4
+
+      - name: Install odoo-venv
+        run: uv tool install .
+
+      # The uv tool only supports installing Python versions that still have distributable builds.
+      # Python 3.7 reached end-of-life (EOL) in June 2023, and prebuilt binaries have been
+      # removed from Astral's distribution index.
+      - name: Install Python ${{ matrix.python_version }} via pyenv
+        if: matrix.python_version == '3.7'
+        run: |
+          curl -fsSL https://pyenv.run | bash
+          export PYENV_ROOT="$HOME/.pyenv"
+          export PATH="$PYENV_ROOT/bin:$PATH"
+          eval "$(pyenv init - bash)"
+          pyenv install 3.7.17
+          pyenv global 3.7.17
+          echo "$PYENV_ROOT/bin" >> $GITHUB_PATH
+          echo "$PYENV_ROOT/shims" >> $GITHUB_PATH
+
+      - name: Create Odoo virtual environment
+        run: |
+          odoo-venv create --verbose ${{ matrix.odoo_version }} \
+            --preset ci \
+            --odoo-dir ~/code/odoo/odoo/${{ matrix.odoo_version }} \
+            --venv-dir ~/code/venvs/${{ matrix.odoo_version }} \
+            --python-version ${{ matrix.python_version }} \
+            --create-launcher
