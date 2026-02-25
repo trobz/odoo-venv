@@ -83,8 +83,9 @@ common configuration to all presets
 ignore_from_odoo_requirements = """
 gevent==21.8.0; sys_platform != 'win32' and python_version == '3.10',
 greenlet==1.1.2; sys_platform != 'win32' and python_version == '3.10',
-vatnumber
-suds-jurko
+vatnumber,
+suds-jurko,
+cbor2==5.4.2 ; python_version < '3.12'
 """
 extra_requirement = """
 gevent==22.10.2; sys_platform == 'linux' and python_version == '3.10',
@@ -118,6 +119,15 @@ env = { UV_NO_BUILD_ISOLATION = "1" }
 [[common.extra_commands]]
 command = ["uv", "pip", "install", "suds-jurko==0.6"]
 when = "odoo_version <= '12.0'"
+stage = "after_requirements"
+env = { UV_NO_BUILD_ISOLATION = "1" }
+
+# Install cbor2==5.4.3 for Odoo >= 18.0
+# TMP: remove once proper fix is merged in odoo
+# See https://github.com/OCA/oca-ci/pull/119
+[[common.extra_commands]]
+command = ["uv", "pip", "install", "cbor2==5.4.3"]
+when = "odoo_version >= '18.0' and python_version == '3.10'"
 stage = "after_requirements"
 env = { UV_NO_BUILD_ISOLATION = "1" }
 
