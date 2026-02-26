@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10"
 
 [[package]]
@@ -90,10 +90,24 @@ wheels = [
 ]
 
 [[package]]
+name = "odoo-addons-path"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyyaml" },
+    { name = "typer" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ab/d7/581000ca4c9a9f0995e9258a9eec8d7f70a84c0df2b0265bab6e55e816b4/odoo_addons_path-1.1.0.tar.gz", hash = "sha256:3c316fcc54edd51fa8a621bfceca364c59893c2f2ac20146132df5b6160e98c6", size = 68618, upload-time = "2026-02-24T06:20:32.364Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3b/df/4ca0a251587c7711f6c709efc5382efbf82a08b0504d39574d2743c5ed24/odoo_addons_path-1.1.0-py3-none-any.whl", hash = "sha256:5b3206c5a2a56890c237a49506790e9af1f3d5e5b0a1158fbc7996b7b05599cc", size = 19605, upload-time = "2026-02-24T06:20:30.809Z" },
+]
+
+[[package]]
 name = "odoo-venv"
 version = "1.2.0"
 source = { editable = "." }
 dependencies = [
+    { name = "odoo-addons-path" },
     { name = "packaging" },
     { name = "tomli" },
     { name = "typer" },
@@ -114,6 +128,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "odoo-addons-path", specifier = ">=1.1.0" },
     { name = "packaging", specifier = ">=25.0" },
     { name = "tomli" },
     { name = "typer" },
