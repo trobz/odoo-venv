@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v1.3.0 (2026-02-26)
+
+### Bug Fixes
+
+- Extract project-dir detection into helpers to fix potential NameError
+  ([`4184ac7`](https://github.com/trobz/odoo-venv/commit/4184ac72c8764e3462241a53e830e07712aa84e3))
+
+### Features
+
+- Add --project-dir to auto-detect addons path, odoo dir, and version
+  ([`ea1e465`](https://github.com/trobz/odoo-venv/commit/ea1e465725c45065f17ac08559d08a999809c008))
+
+- Utilize public API of odoo-addons-path
+  ([`5a4cb9f`](https://github.com/trobz/odoo-venv/commit/5a4cb9fa5392579db128697ea1e28f2f28dd8106))
+
+
 ## v1.2.0 (2026-02-12)
 
 ### Bug Fixes
