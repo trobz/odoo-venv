@@ -57,7 +57,9 @@ def project_dir_callback(ctx: typer.Context, param: typer.CallbackParam, value: 
     if not value:
         return None
 
-    # Auto-apply "project" preset if no preset was explicitly set
+    # Auto-apply "project" preset if no preset was explicitly set.
+    # --preset is also is_eager and declared before --project-dir, so if the user
+    # passed --preset explicitly, ctx.default_map is already populated here.
     if not ctx.default_map:
         preset_callback(ctx, param, "project")
 
@@ -87,8 +89,65 @@ def main_callback(
     pass
 
 
+def _detect_project_layout(project_dir_value: str) -> tuple[Path | None, str | None, str | None]:
+    """Detect odoo_dir, odoo_version, and addons_path from a project directory.
+
+    Returns:
+        (odoo_dir_path, odoo_version, addons_path) — any value may be None if not detected.
+    """
+    project_dir_path = Path(project_dir_value).expanduser().resolve()
+    detected_paths = detect_codebase_layout(project_dir_path)
+
+    addons_path = get_addons_path(project_dir_path, detected_paths=detected_paths)
+
+    # Resolve odoo_dir from detected layout
+    odoo_dir_path = None
+    if detected_paths.get("odoo_dir"):
+        odoo_dir_path = detected_paths["odoo_dir"][0].parent
+
+    # Infer version from release.py inside the detected odoo dir
+    odoo_version = None
+    if odoo_dir_path:
+        odoo_version = get_odoo_version_from_release(odoo_dir_path)
+
+    return odoo_dir_path, odoo_version, addons_path
+
+
+def _resolve_odoo_dir_and_version(
+    odoo_dir: str | None,
+    odoo_version: str | None,
+    detected_odoo_dir: Path | None,
+    detected_version: str | None,
+) -> tuple[Path, str]:
+    """Determine odoo_dir and odoo_version from explicit args or detected values.
+
+    Priority: explicit CLI flags > auto-detected from --project-dir > default path.
+    Exits with an error if neither can be resolved.
+    """
+    # Resolve odoo_dir: explicit flag > detected > default path from version
+    if odoo_dir:
+        odoo_dir_path = Path(odoo_dir).expanduser().resolve()
+    elif detected_odoo_dir:
+        odoo_dir_path = detected_odoo_dir
+    elif odoo_version:
+        odoo_dir_path = Path(f"~/code/odoo/odoo/{odoo_version}").expanduser()
+    else:
+        typer.secho("error: ODOO_VERSION is required when --project-dir is not used.", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    # Resolve odoo_version: explicit arg > detected from release.py
+    resolved_version = odoo_version or detected_version
+    if not resolved_version:
+        typer.secho(
+            "error: Could not detect Odoo version from source. Provide ODOO_VERSION explicitly.", fg=typer.colors.RED
+        )
+        raise typer.Exit(1)
+
+    return odoo_dir_path, resolved_version
+
+
 @app.command()
-def create(  # noqa: C901
+def create(
     ctx: typer.Context,
     odoo_version: Annotated[
         str | None, typer.Argument(help="Odoo version, e.g: 18.0. Inferred from --project-dir if omitted.")
@@ -185,40 +244,15 @@ def create(  # noqa: C901
     ] = None,
 ):
     """Create virtual environment to run Odoo"""
-    # Handle --project-dir: auto-detect addons_path and odoo_dir
+    # Auto-detect layout from --project-dir if provided
     project_dir_value = ctx.obj.get("project_dir") if ctx.obj else None
-    detected_addons_path = None
-    if project_dir_value:
-        project_dir_path = Path(project_dir_value).expanduser().resolve()
-        detected_paths = detect_codebase_layout(project_dir_path)
-        detected_addons_path = get_addons_path(
-            project_dir_path,
-            detected_paths=detected_paths,
-        )
+    detected_odoo_dir, detected_version, detected_addons_path = (
+        _detect_project_layout(project_dir_value) if project_dir_value else (None, None, None)
+    )
 
-    # Resolve odoo_dir (before odoo_version, which may be inferred from it)
-    if odoo_dir:
-        odoo_dir_path = Path(odoo_dir).expanduser().resolve()
-    elif project_dir_value and detected_paths.get("odoo_dir"):
-        odoo_dir_path = detected_paths["odoo_dir"][0].parent
-    elif odoo_version:
-        odoo_dir_path = Path(f"~/code/odoo/odoo/{odoo_version}").expanduser()
-    else:
-        typer.secho(
-            "error: ODOO_VERSION is required when --project-dir is not used.",
-            fg=typer.colors.RED,
-        )
-        raise typer.Exit(1)
-
-    # Infer odoo_version from release.py if not provided
-    if not odoo_version:
-        odoo_version = get_odoo_version_from_release(odoo_dir_path)
-        if not odoo_version:
-            typer.secho(
-                "error: Could not detect Odoo version from source. Provide ODOO_VERSION explicitly.",
-                fg=typer.colors.RED,
-            )
-            raise typer.Exit(1)
+    odoo_dir_path, odoo_version = _resolve_odoo_dir_and_version(
+        odoo_dir, odoo_version, detected_odoo_dir, detected_version
+    )
 
     if not python_version:
         python_version = ODOO_PYTHON_VERSIONS.get(odoo_version)
