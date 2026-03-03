@@ -1,3 +1,4 @@
+import re
 import subprocess
 import sys
 from dataclasses import dataclass, fields
@@ -6,6 +7,26 @@ from pathlib import Path
 
 import tomli
 from packaging.version import Version
+
+
+def split_escaped(s: str, sep: str = ",") -> list[str]:
+    """Split *s* on *sep*, honouring backslash-escaped separators.
+
+    Escaped separators (``\\,``) are preserved as literal characters in the
+    resulting items; unescaped separators are used as split points.
+
+    >>> split_escaped("sentry_sdk,requests")
+    ['sentry_sdk', 'requests']
+    >>> split_escaped(r"sentry_sdk>=2.0.0\\,<=2.22.0")
+    ['sentry_sdk>=2.0.0,<=2.22.0']
+    >>> split_escaped(r"a,sentry_sdk>=2.0.0\\,<=2.22.0,b")
+    ['a', 'sentry_sdk>=2.0.0,<=2.22.0', 'b']
+    >>> split_escaped("")
+    ['']
+    """
+    parts = re.split(rf"(?<!\\){re.escape(sep)}", s)
+    return [p.replace(f"\\{sep}", sep) for p in parts]
+
 
 ROOT_PATH = Path("~/.local/share/odoo-venv/").expanduser()
 PRESETS_FILE = "presets.toml"

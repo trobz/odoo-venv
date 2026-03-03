@@ -13,7 +13,7 @@ from odoo_addons_path import (
 from odoo_venv.exceptions import PresetNotFoundError
 from odoo_venv.launcher import create_launcher
 from odoo_venv.main import create_odoo_venv
-from odoo_venv.utils import initialize_presets, load_presets, run_migration
+from odoo_venv.utils import initialize_presets, load_presets, run_migration, split_escaped
 
 app = typer.Typer()
 initialize_presets()
@@ -206,7 +206,7 @@ def create(
     ] = None,
     extra_requirement: Annotated[
         str | None,
-        typer.Option(help="Comma-separated list of extra packages to install."),
+        typer.Option(help="Comma-separated list of extra packages to install. Use \\, for a literal comma."),
     ] = None,
     verbose: Annotated[
         bool,
@@ -262,7 +262,7 @@ def create(
     extra_requirements_list = []
     if extra_requirement:
         if isinstance(extra_requirement, str):
-            extra_requirements_list = extra_requirement.split(",")
+            extra_requirements_list = split_escaped(extra_requirement)
         else:
             extra_requirements_list = list(extra_requirement)
 

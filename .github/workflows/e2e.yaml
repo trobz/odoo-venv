@@ -52,6 +52,13 @@ jobs:
             python_version: "3.13"
 
     steps:
+      # Pre-install uv via official action with caching to avoid
+      # downloading from GitHub Releases on every matrix job.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
       - name: Bootstrap
         run: |
           mkdir -p ~/code
