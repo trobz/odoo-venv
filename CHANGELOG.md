@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.4.0 (2026-03-03)
+
+### Bug Fixes
+
+- **ci**: Pre-install uv in e2e workflow with caching
+  ([`71b4006`](https://github.com/trobz/odoo-venv/commit/71b400645d0757215ef0828c215e8fe014119979))
+
+### Features
+
+- Support escaped commas in --extra-requirement
+  ([`d22bade`](https://github.com/trobz/odoo-venv/commit/d22bade81549b610d6415e19a969bd48b79a5ead))
+
+
 ## v1.3.0 (2026-02-26)
 
 ### Bug Fixes
