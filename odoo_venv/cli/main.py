@@ -1,3 +1,7 @@
+import concurrent.futures
+import json
+import subprocess
+import urllib.request
 from dataclasses import asdict
 from importlib.metadata import version
 from pathlib import Path
@@ -298,6 +302,137 @@ def create(
 
     if create_launcher_flag:
         create_launcher(odoo_version, venv_dir_path, force=True)
+
+
+def _is_uv_venv(venv_dir: Path) -> bool:
+    """Return True if the venv was created by uv (detected via pyvenv.cfg)."""
+    cfg = venv_dir / "pyvenv.cfg"
+    try:
+        return any(line.startswith("uv =") for line in cfg.read_text().splitlines())
+    except OSError:
+        return False
+
+
+def _freeze_venv(venv_dir: Path) -> dict[str, str]:
+    """Run ``uv pip freeze`` or ``pip freeze`` on a venv depending on how it was created.
+
+    Returns a ``{normalized_name: version}`` dict.
+    Uses the venv's own ``pip`` for venvs not created by uv, because
+    ``uv pip freeze`` returns empty output in that case.
+    """
+    if _is_uv_venv(venv_dir):
+        cmd = ["uv", "pip", "freeze", "--python", str(venv_dir)]
+    else:
+        cmd = [str(venv_dir / "bin" / "pip"), "freeze", "--all"]
+
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True)  # noqa: S603
+    pkgs: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if "==" in line:
+            name, ver = line.split("==", 1)
+            pkgs[name.lower()] = ver
+    return pkgs
+
+
+def _fetch_latest_pypi(package: str) -> str:
+    """Return the latest version of *package* from PyPI, or ``"?"`` on failure."""
+    url = f"https://pypi.org/pypi/{package}/json"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:  # noqa: S310
+            return json.loads(resp.read())["info"]["version"]
+    except Exception:
+        return "?"
+
+
+def _build_compare_table(
+    resolved: list[Path],
+    all_packages: dict[Path, dict[str, str]],
+    all_names: list[str],
+    latest: dict[str, str],
+    show_latest: bool,
+):
+    from rich import box
+    from rich.table import Table
+
+    table = Table(box=box.ROUNDED, show_header=True, header_style="bold cyan")
+    table.add_column("Package", style="bold", no_wrap=True)
+    for d in resolved:
+        table.add_column(d.name, justify="center")
+    if show_latest:
+        table.add_column("Latest", justify="center")
+
+    for name in all_names:
+        versions = [all_packages[d].get(name) for d in resolved]
+        has_diff = len({v for v in versions if v is not None}) > 1
+
+        cells: list[str] = []
+        for ver in versions:
+            if ver is None:
+                cells.append("[dim]-[/dim]")
+            elif has_diff:
+                cells.append(f"[yellow]{ver}[/yellow]")
+            else:
+                cells.append(ver)
+
+        row: list[str] = [name, *cells]
+
+        if show_latest:
+            lat = latest.get(name, "?")
+            is_outdated = lat != "?" and any(ver is not None and ver != lat for ver in versions)
+            row.append(f"[red]{lat}[/red]" if is_outdated else f"[green]{lat}[/green]")
+
+        table.add_row(*row)
+
+    return table
+
+
+@app.command()
+def compare(
+    venv_dirs: Annotated[list[Path], typer.Argument(help="Virtual environment directories to compare.")],
+    no_latest: Annotated[
+        bool,
+        typer.Option("--no-latest", help="Do not fetch or show the 'Latest' column from PyPI."),
+    ] = False,
+):
+    """Compare installed package versions across virtual environments."""
+    from rich.console import Console
+
+    if not venv_dirs:
+        typer.secho("error: at least one venv directory is required.", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    resolved = []
+    for d in venv_dirs:
+        d = d.expanduser().resolve()
+        if not d.is_dir():
+            typer.secho(f"error: {d} is not a directory.", fg=typer.colors.RED)
+            raise typer.Exit(1)
+        resolved.append(d)
+
+    # Freeze each venv
+    all_packages: dict[Path, dict[str, str]] = {}
+    for d in resolved:
+        typer.secho(f"Freezing {d.name}...", fg=typer.colors.CYAN)
+        try:
+            all_packages[d] = _freeze_venv(d)
+        except subprocess.CalledProcessError as exc:
+            typer.secho(f"error: failed to freeze {d}:\n{exc.stderr}", fg=typer.colors.RED)
+            raise typer.Exit(1) from exc
+
+    all_names = sorted({name for pkgs in all_packages.values() for name in pkgs})
+
+    # Fetch latest versions in parallel
+    latest: dict[str, str] = {}
+    if not no_latest:
+        typer.secho("Fetching latest versions from PyPI...", fg=typer.colors.CYAN)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+            futures = {executor.submit(_fetch_latest_pypi, name): name for name in all_names}
+            for fut in concurrent.futures.as_completed(futures):
+                latest[futures[fut]] = fut.result()
+
+    table = _build_compare_table(resolved, all_packages, all_names, latest, show_latest=not no_latest)
+    Console().print(table)
 
 
 @app.command()
