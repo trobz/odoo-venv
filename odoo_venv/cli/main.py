@@ -51,9 +51,14 @@ def preset_callback(ctx: typer.Context, param: typer.CallbackParam, value: str):
 
     ctx.default_map = ctx.default_map or {}
     ctx.default_map.update(preset_options)
-    # Store extra_commands on ctx.obj (not a CLI option, so default_map won't forward it)
+    # Store extra_commands and extra_requirement on ctx.obj so they can be merged
+    # with any explicit CLI values rather than being overridden by them.
+    # Remove them from default_map so Click doesn't double-apply them.
+    ctx.default_map.pop("extra_commands", None)
+    ctx.default_map.pop("extra_requirement", None)
     obj = ctx.ensure_object(dict)
     obj["extra_commands"] = preset_options.get("extra_commands")
+    obj["preset_extra_requirement"] = preset_options.get("extra_requirement")
     obj["explicit_preset"] = True
     if descr := preset_options["description"]:
         typer.secho(f"Applying preset '{value}': {descr}", fg=typer.colors.GREEN)
@@ -77,7 +82,10 @@ def project_dir_callback(ctx: typer.Context, param: typer.CallbackParam, value: 
             preset_options = asdict(all_presets["project"])
             ctx.default_map = ctx.default_map or {}
             ctx.default_map.update(preset_options)
+            ctx.default_map.pop("extra_commands", None)
+            ctx.default_map.pop("extra_requirement", None)
             obj["extra_commands"] = preset_options.get("extra_commands")
+            obj["preset_extra_requirement"] = preset_options.get("extra_requirement")
             if descr := preset_options.get("description"):
                 typer.secho(f"Applying preset 'project': {descr}", fg=typer.colors.GREEN)
 
@@ -346,12 +354,17 @@ def create(
 
     venv_dir_path = Path(venv_dir).expanduser().resolve()
 
+    # Merge preset's extra_requirement (stored in ctx.obj) with any explicit CLI value.
+    # The CLI value is additive: --extra-requirement="" means "nothing extra beyond the preset".
     extra_requirements_list = []
+    preset_extra_req = (ctx.obj or {}).get("preset_extra_requirement")
+    if preset_extra_req:
+        extra_requirements_list.extend(split_escaped(preset_extra_req))
     if extra_requirement:
         if isinstance(extra_requirement, str):
-            extra_requirements_list = split_escaped(extra_requirement)
+            extra_requirements_list.extend(split_escaped(extra_requirement))
         else:
-            extra_requirements_list = list(extra_requirement)
+            extra_requirements_list.extend(extra_requirement)
 
     if not addons_path and detected_addons_path:
         addons_path = detected_addons_path
