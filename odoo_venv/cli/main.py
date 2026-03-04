@@ -52,7 +52,9 @@ def preset_callback(ctx: typer.Context, param: typer.CallbackParam, value: str):
     ctx.default_map = ctx.default_map or {}
     ctx.default_map.update(preset_options)
     # Store extra_commands on ctx.obj (not a CLI option, so default_map won't forward it)
-    ctx.ensure_object(dict)["extra_commands"] = preset_options.get("extra_commands")
+    obj = ctx.ensure_object(dict)
+    obj["extra_commands"] = preset_options.get("extra_commands")
+    obj["explicit_preset"] = True
     if descr := preset_options["description"]:
         typer.secho(f"Applying preset '{value}': {descr}", fg=typer.colors.GREEN)
     return value
@@ -62,13 +64,24 @@ def project_dir_callback(ctx: typer.Context, param: typer.CallbackParam, value: 
     if not value:
         return None
 
-    # Auto-apply "project" preset if no preset was explicitly set.
-    # --preset is also is_eager and declared before --project-dir, so if the user
-    # passed --preset explicitly, ctx.default_map is already populated here.
-    if not ctx.default_map:
-        preset_callback(ctx, param, "project")
+    # Auto-apply "project" preset silently if no explicit --preset was given.
+    # Both --preset and --project-dir are is_eager, so their callbacks fire in CLI argument
+    # order (not declaration order). We check explicit_preset (set by preset_callback when
+    # --preset appears before --project-dir in argv) to skip the auto-apply in that case.
+    # When --project-dir appears first, we apply "project" defaults silently here; if the
+    # user also passed --preset, that callback fires next and will overwrite with its message.
+    obj = ctx.ensure_object(dict)
+    if not obj.get("explicit_preset"):
+        all_presets = load_presets()
+        if "project" in all_presets:
+            preset_options = asdict(all_presets["project"])
+            ctx.default_map = ctx.default_map or {}
+            ctx.default_map.update(preset_options)
+            obj["extra_commands"] = preset_options.get("extra_commands")
+            if descr := preset_options.get("description"):
+                typer.secho(f"Applying preset 'project': {descr}", fg=typer.colors.GREEN)
 
-    ctx.ensure_object(dict)["project_dir"] = value
+    obj["project_dir"] = value
     return value
 
 
