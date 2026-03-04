@@ -33,15 +33,19 @@ ODOO_PYTHON_VERSIONS = {
 }
 
 
-def preset_callback(ctx: typer.Context, param: typer.CallbackParam, value: str):
-    if not value:
-        return None
+def _apply_preset(ctx: typer.Context, preset_name: str, all_presets: dict, *, silent: bool = False):
+    """Apply a preset's options to the Typer context.
 
-    all_presets = load_presets()
-    if value not in all_presets:
-        raise PresetNotFoundError(value)
+    Loads preset values into ctx.default_map and stores extra_commands/extra_requirement
+    in ctx.obj for later merging (so CLI flags remain additive rather than overriding).
 
-    preset_vals = all_presets[value]
+    Args:
+        ctx: Typer context to update.
+        preset_name: Key in all_presets to apply.
+        all_presets: Dict of loaded presets (from load_presets()).
+        silent: When True, suppress the "Applying preset" message.
+    """
+    preset_vals = all_presets[preset_name]
     preset_options = asdict(preset_vals)
 
     ctx.default_map = ctx.default_map or {}
@@ -54,9 +58,21 @@ def preset_callback(ctx: typer.Context, param: typer.CallbackParam, value: str):
     obj = ctx.ensure_object(dict)
     obj["extra_commands"] = preset_options.get("extra_commands")
     obj["preset_extra_requirement"] = preset_options.get("extra_requirement")
-    obj["explicit_preset"] = True
-    if descr := preset_options["description"]:
-        typer.secho(f"Applying preset '{value}': {descr}", fg=typer.colors.GREEN)
+
+    if not silent and (descr := preset_options.get("description")):
+        typer.secho(f"Applying preset '{preset_name}': {descr}", fg=typer.colors.GREEN)
+
+
+def preset_callback(ctx: typer.Context, param: typer.CallbackParam, value: str):
+    if not value:
+        return None
+
+    all_presets = load_presets()
+    if value not in all_presets:
+        raise PresetNotFoundError(value)
+
+    _apply_preset(ctx, value, all_presets)
+    ctx.ensure_object(dict)["explicit_preset"] = True
     return value
 
 
@@ -74,15 +90,7 @@ def project_dir_callback(ctx: typer.Context, param: typer.CallbackParam, value: 
     if not obj.get("explicit_preset"):
         all_presets = load_presets()
         if "project" in all_presets:
-            preset_options = asdict(all_presets["project"])
-            ctx.default_map = ctx.default_map or {}
-            ctx.default_map.update(preset_options)
-            ctx.default_map.pop("extra_commands", None)
-            ctx.default_map.pop("extra_requirement", None)
-            obj["extra_commands"] = preset_options.get("extra_commands")
-            obj["preset_extra_requirement"] = preset_options.get("extra_requirement")
-            if descr := preset_options.get("description"):
-                typer.secho(f"Applying preset 'project': {descr}", fg=typer.colors.GREEN)
+            _apply_preset(ctx, "project", all_presets, silent=True)
 
     obj["project_dir"] = value
     return value
