@@ -182,6 +182,31 @@ def _run_commands_for_stage(
             _handle_cmd_error(command, stage, when_marker, extra_env)
 
 
+def _collect_constrained_packages(req_lines: list[str], target_env: dict[str, str]) -> set[str]:
+    """Return lowercase names of packages that appear with a version specifier.
+
+    Used to auto-detect user requirements that conflict with Odoo's pinned versions,
+    so Odoo's pin can be skipped in favour of the user's constraint.
+
+    >>> _collect_constrained_packages(["python-stdnum>=1.9", "debugpy", "# comment"], {})
+    {'python-stdnum'}
+    >>> _collect_constrained_packages(["python-stdnum", "foo==1.0"], {})
+    {'foo'}
+    """
+    result = set()
+    for line in req_lines:
+        line = line.split("#")[0].strip()
+        if not line:
+            continue
+        try:
+            req = Requirement(line)
+            if req.specifier and (not req.marker or req.marker.evaluate(environment=target_env)):
+                result.add(req.name.lower())
+        except InvalidRequirement:
+            pass
+    return result
+
+
 def _keep_if_marker_matches(req_line: str, env: dict | None = None) -> str | None:
     req_line = req_line.split("#")[0].strip()
     if not req_line:
@@ -412,6 +437,45 @@ def create_odoo_venv(  # noqa: C901
                 fg=typer.colors.RED,
             )
 
+    # Hoist manifest discovery so it can be reused in both the pre-scan and the main loop.
+    manifest_files: list[Path] = []
+    if install_addons_manifests_requirements and addons_paths:
+        manifest_files = _find_manifest_files(addons_paths)
+
+    # Pre-scan user sources for packages with version specifiers.
+    # When a user source pins/constrains a package, Odoo's stricter pin is skipped automatically,
+    # so the user's version wins without needing explicit ignore list entries.
+    user_constrained: set[str] = set()
+    if extra_requirements:
+        user_constrained |= _collect_constrained_packages(extra_requirements, target_env_for_markers)
+    if extra_requirements_file:
+        _extra_req_path = Path(extra_requirements_file).expanduser().resolve()
+        if _extra_req_path.exists():
+            user_constrained |= _collect_constrained_packages(
+                _extra_req_path.read_text(encoding="utf-8").splitlines(), target_env_for_markers
+            )
+    if install_addons_dirs_requirements and addons_paths:
+        for path in addons_paths:
+            _addons_req = Path(path) / "requirements.txt"
+            if _addons_req.exists():
+                user_constrained |= _collect_constrained_packages(
+                    _addons_req.read_text(encoding="utf-8").splitlines(), target_env_for_markers
+                )
+    for manifest_file in manifest_files:
+        manifest = ast.literal_eval(manifest_file.read_text(encoding="utf-8"))
+        if "external_dependencies" in manifest and isinstance(manifest["external_dependencies"].get("python"), list):
+            user_constrained |= _collect_constrained_packages(
+                manifest["external_dependencies"]["python"], target_env_for_markers
+            )
+    for pkg_name in user_constrained:
+        if not any(not r.specifier for r in ignored_req_map[pkg_name]):
+            ignored_req_map[pkg_name].append(Requirement(pkg_name))
+            if verbose:
+                typer.secho(
+                    f"  i  Auto-ignoring Odoo's '{pkg_name}' pin (overridden by user requirement)",
+                    fg=typer.colors.CYAN,
+                )
+
     with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt", encoding="utf-8") as tmp:
         tmp_path = tmp.name
         req_count = 0
@@ -436,8 +500,7 @@ def create_odoo_venv(  # noqa: C901
                         if _process_requirement_line(line, ignored_req_map, tmp, target_env_for_markers):
                             req_count += 1
 
-        if install_addons_manifests_requirements and addons_paths:
-            manifest_files = _find_manifest_files(addons_paths)
+        if manifest_files:
             for manifest_file in manifest_files:
                 with open(manifest_file, encoding="utf-8") as f:
                     content = f.read()
