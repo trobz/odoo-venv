@@ -601,7 +601,7 @@ def create_odoo_venv(  # noqa: C901
 
         if extra_requirements:
             for req_line in extra_requirements:
-                if _process_requirement_line(req_line, ignored_req_map, tmp, target_env_for_markers):
+                if _process_requirement_line(req_line, {}, tmp, target_env_for_markers):
                     req_count += 1
 
         if extra_requirements_file:
@@ -609,7 +609,7 @@ def create_odoo_venv(  # noqa: C901
             if extra_req_file.exists():
                 with open(extra_req_file, encoding="utf-8") as f:
                     for line in f:
-                        if _process_requirement_line(line, ignored_req_map, tmp, target_env_for_markers):
+                        if _process_requirement_line(line, {}, tmp, target_env_for_markers):
                             req_count += 1
 
         if manifest_files:
