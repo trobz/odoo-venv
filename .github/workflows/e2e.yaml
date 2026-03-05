@@ -52,12 +52,22 @@ jobs:
             python_version: "3.13"
 
     steps:
+      # Cache the uv binary in GitHub Actions tool-cache so setup-uv
+      # finds it and skips downloading from GitHub Releases.
+      - name: Cache uv binary
+        uses: actions/cache@v4
+        with:
+          path: /opt/hostedtoolcache/uv
+          key: uv-binary-${{ runner.os }}-0.10.8
+
       # Pre-install uv via official action with caching to avoid
       # downloading from GitHub Releases on every matrix job.
       - name: Install uv
         uses: astral-sh/setup-uv@v6
         with:
+          version: "0.10.8"
           enable-cache: true
+          ignore-empty-workdir: true
 
       - name: Bootstrap
         run: |
@@ -152,10 +162,20 @@ jobs:
           # master excluded: no all_repos_master.toml in trobz/odoo-addons-repos
 
     steps:
+      # Cache the uv binary in GitHub Actions tool-cache so setup-uv
+      # finds it and skips downloading from GitHub Releases.
+      - name: Cache uv binary
+        uses: actions/cache@v4
+        with:
+          path: /opt/hostedtoolcache/uv
+          key: uv-binary-${{ runner.os }}-0.10.8
+
       - name: Install uv
         uses: astral-sh/setup-uv@v6
         with:
+          version: "0.10.8"
           enable-cache: true
+          ignore-empty-workdir: true
 
       - name: Bootstrap
         run: |
@@ -176,7 +196,7 @@ jobs:
           echo "TODAY=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
       # Combined cache for Odoo source + OCA repos.
-      # Falls back to the Odoo-only cache produced by the test job on first run.
+      # Falls back to the Odoo-only cache produced by the test-native job on first run.
       - name: Cache repos ${{ matrix.odoo_version }}
         uses: actions/cache@v4
         with:
