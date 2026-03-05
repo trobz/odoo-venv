@@ -237,6 +237,7 @@ def _resolve_manifest_dep(dep: str) -> str:
     return _MANIFEST_IMPORT_TO_PIP.get(dep.lower(), dep)
 
 
+
 def _collect_constrained_packages(req_lines: list[str], target_env: dict[str, str]) -> set[str]:
     """Return lowercase names of packages that appear with a version specifier.
 
@@ -338,6 +339,7 @@ def _scan_user_sources(
             result |= collector_fn(ext_deps["python"], target_env)
 
     return result
+
 
 
 def _keep_if_marker_matches(req_line: str, env: dict | None = None) -> str | None:
@@ -846,6 +848,7 @@ def create_odoo_venv(  # noqa: C901
                 f"  i  Auto-ignoring '{pkg_name}' (will install separately with --no-build-isolation)",
                 fg=typer.colors.CYAN,
             )
+
 
     with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt", encoding="utf-8") as tmp:
         tmp_path = tmp.name
