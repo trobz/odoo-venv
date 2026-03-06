@@ -307,6 +307,7 @@ def _run_command(
     verbose: bool = False,
     dry_run: bool = False,
     extra_env: dict[str, str] | None = None,
+    raise_on_error: bool = False,
 ):
     if verbose:
         typer.secho(f"  → Running: {' '.join(command)}", fg=typer.colors.BLUE)
@@ -330,9 +331,104 @@ def _run_command(
         cwd=cwd,
     )
     if result.returncode != 0:
+        if raise_on_error:
+            raise subprocess.CalledProcessError(result.returncode, command, output=result.stdout, stderr=result.stderr)
         typer.echo(result.stderr, file=sys.stderr)
         sys.exit(1)
     return result
+
+
+# Patterns to extract a failing package name from uv's error output.
+# Each pattern must have a named group ``pkg``.
+_UV_FAILURE_PATTERNS = [
+    re.compile(r"Failed to build `(?P<pkg>[A-Za-z0-9_\-\.]+)"),
+    re.compile(r"Failed to download and install `(?P<pkg>[A-Za-z0-9_\-\.]+)"),
+    re.compile(r"Failed to download `(?P<pkg>[A-Za-z0-9_\-\.]+)"),
+    re.compile(r"Failed to install `(?P<pkg>[A-Za-z0-9_\-\.]+)"),
+    re.compile(r"error:.*`(?P<pkg>[A-Za-z0-9_\-\.]+)=="),
+]
+
+
+def _extract_failed_package(stderr: str) -> str | None:
+    """Parse uv stderr output to find the name of the package that failed to install.
+
+    Returns the package name (without version) or None if it cannot be determined.
+
+    >>> _extract_failed_package("Failed to build `vatnumber==1.2`")
+    'vatnumber'
+    >>> _extract_failed_package("Failed to download and install `lxml==4.9.3`")
+    'lxml'
+    >>> _extract_failed_package("something went wrong with no package name") is None
+    True
+    """
+    for pattern in _UV_FAILURE_PATTERNS:
+        m = pattern.search(stderr)
+        if m:
+            return m.group("pkg")
+    return None
+
+
+def _install_requirements_with_retry(
+    tmp_path: str,
+    venv_dir: Path,
+    verbose: bool,
+    dry_run: bool,
+    max_retries: int = 10,
+) -> list[str]:
+    """Attempt to install requirements, skipping packages that fail to install.
+
+    On each failure, parses uv's stderr to identify the offending package,
+    removes it from the requirements file, and retries. If the failing package
+    cannot be determined, exits with an error.
+
+    Returns the list of package names that were skipped.
+    """
+    skipped: list[str] = []
+
+    for attempt in range(max_retries + 1):
+        install_args = ["uv", "pip", "install", "-r", tmp_path]
+        try:
+            _run_command(install_args, venv_dir=venv_dir, verbose=False, dry_run=dry_run, raise_on_error=True)
+        except subprocess.CalledProcessError as exc:
+            if attempt == max_retries:
+                typer.echo(exc.stderr, file=sys.stderr)
+                typer.secho(
+                    f"  ✗ Installation still failing after skipping {len(skipped)} package(s). Giving up.",
+                    fg=typer.colors.RED,
+                )
+                sys.exit(1)
+
+            pkg = _extract_failed_package(exc.stderr)
+            if pkg is not None:
+                typer.secho(
+                    f"  ⚠  '{pkg}' failed to install — skipping and retrying...",
+                    fg=typer.colors.YELLOW,
+                )
+                skipped.append(pkg)
+
+                # Rewrite the requirements file without the failing package.
+                with open(tmp_path, encoding="utf-8") as f:
+                    lines = f.readlines()
+                pkg_lower = pkg.lower()
+                filtered = [
+                    line
+                    for line in lines
+                    if not re.match(rf"^{re.escape(pkg_lower)}([>=<!;\s\[]|$)", line.strip().lower())
+                ]
+                with open(tmp_path, "w", encoding="utf-8") as f:
+                    f.writelines(filtered)
+            else:
+                typer.echo(exc.stderr, file=sys.stderr)
+                typer.secho(
+                    "  ✗ Could not detect which package failed to install."
+                    " Retry without --skip-on-failure for full error details.",
+                    fg=typer.colors.RED,
+                )
+                sys.exit(1)
+        else:
+            return skipped
+
+    return skipped  # unreachable, satisfies type checker
 
 
 def _get_python_version_from_odoo_src(odoo_dir: Path) -> str | None:
@@ -415,6 +511,7 @@ def create_odoo_venv(  # noqa: C901
     extra_commands: list[dict] | None = None,
     verbose: bool = False,
     dry_run: bool = False,
+    skip_on_failure: bool = False,
 ):
     odoo_dir = Path(odoo_dir).expanduser().resolve()
     venv_dir = Path(venv_dir).expanduser().resolve()
@@ -631,14 +728,8 @@ def create_odoo_venv(  # noqa: C901
                             ):
                                 req_count += 1
 
+    skipped: list[str] = []
     if req_count > 0:
-        install_args = [
-            "uv",
-            "pip",
-            "install",
-            "-r",
-            tmp_path,
-        ]
         typer.secho("\nInstalling required packages...")
         if verbose:
             if ignored_req_map:
@@ -655,7 +746,17 @@ def create_odoo_venv(  # noqa: C901
                 for req in requirements:
                     typer.secho(f"      - {req}", fg=typer.colors.CYAN)
 
-        _run_command(install_args, venv_dir=venv_dir, verbose=False, dry_run=dry_run)
+        if skip_on_failure:
+            skipped = _install_requirements_with_retry(tmp_path, venv_dir=venv_dir, verbose=verbose, dry_run=dry_run)
+            if skipped:
+                typer.secho(
+                    f"  ⚠  Skipped {len(skipped)} package(s) due to installation failure: "
+                    + ", ".join(typer.style(p, fg=typer.colors.YELLOW) for p in skipped),
+                    fg=typer.colors.YELLOW,
+                )
+        else:
+            install_args = ["uv", "pip", "install", "-r", tmp_path]
+            _run_command(install_args, venv_dir=venv_dir, verbose=False, dry_run=dry_run)
         typer.secho(f"  ✔  {typer.style(req_count, fg=typer.colors.YELLOW)} Packages installed successfully")
 
     os.remove(tmp_path)
@@ -702,3 +803,6 @@ def create_odoo_venv(  # noqa: C901
     typer.secho(
         f"Activate it with: source {typer.style(str(venv_dir / 'bin' / 'activate'), fg=typer.colors.YELLOW)}",
     )
+
+    if skipped:
+        sys.exit(1)

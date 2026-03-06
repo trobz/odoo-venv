@@ -245,6 +245,13 @@ def create(
         bool,
         typer.Option(),
     ] = False,
+    skip_on_failure: Annotated[
+        bool,
+        typer.Option(
+            "--skip-on-failure/--no-skip-on-failure",
+            help="Automatically skip packages that fail to install and retry.",
+        ),
+    ] = False,
     preset: Annotated[
         str | None,
         typer.Option(
@@ -328,6 +335,7 @@ def create(
         extra_commands=extra_commands,
         verbose=verbose,
         dry_run=dry_run,
+        skip_on_failure=skip_on_failure,
     )
 
     if create_launcher_flag:
