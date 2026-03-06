@@ -26,23 +26,24 @@ VALID_STAGES = {"after_venv", "after_requirements", "after_odoo_install"}
 # still use import names in practice, so the mapping is applied unconditionally.
 _MANIFEST_IMPORT_TO_PIP: dict[str, str] = {
     "stdnum": "python-stdnum",
-    "Crypto": "pycryptodome",
-    "OpenSSL": "pyOpenSSL",
+    "crypto": "pycryptodome",
+    "openssl": "pyOpenSSL",
     "dateutil": "python-dateutil",
     "yaml": "pyyaml",
     "usb": "pyusb",
     "serial": "pyserial",
-    "PIL": "Pillow",
+    "pil": "Pillow",
     "magic": "python-magic",
     "bs4": "beautifulsoup4",
     "sklearn": "scikit-learn",
     "ldap": "python-ldap",
     "voicent": "Voicent-Python",
-    "Asterisk": "py-Asterisk",
+    "asterisk": "py-Asterisk",
     "facturx": "factur-x",
-    "MySQLdb": "MySQL-python",
+    "mysqldb": "MySQL-python",
     "u2flib_server": "python-u2flib-server",
     "u2flib-server": "python-u2flib-server",
+    "git": "GitPython",
 }
 
 _COMPARISON_OPS = {
@@ -285,12 +286,14 @@ def _resolve_manifest_dep(dep: str) -> str:
 
     >>> _resolve_manifest_dep("stdnum")
     'python-stdnum'
+    >>> _resolve_manifest_dep("Crypto")
+    'pycryptodome'
     >>> _resolve_manifest_dep("dateutil")
     'python-dateutil'
     >>> _resolve_manifest_dep("unknown_pkg")
     'unknown_pkg'
     """
-    return _MANIFEST_IMPORT_TO_PIP.get(dep, dep)
+    return _MANIFEST_IMPORT_TO_PIP.get(dep.lower(), dep)
 
 
 def _keep_if_marker_matches(req_line: str, env: dict | None = None) -> str | None:
