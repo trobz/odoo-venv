@@ -695,9 +695,18 @@ def create_odoo_venv(  # noqa: C901
     if install_addons_manifests_requirements and addons_paths:
         manifest_files = _find_manifest_files(addons_paths)
 
+    # Collect the set of packages actually present in the base requirement files
+    # (Odoo's requirements.txt and addons dirs).  Auto-ignore logic is restricted to
+    # this set so we never silently drop a package that Odoo doesn't pin.
+    base_pinned: set[str] = set()
+    for req_file in all_req_files:
+        base_pinned |= _collect_mentioned_packages(
+            req_file.read_text(encoding="utf-8").splitlines(), target_env_for_markers
+        )
+
     # Pre-scan user sources for packages with version specifiers.
-    # When a user source pins/constrains a package, Odoo's stricter pin is skipped automatically,
-    # so the user's version wins without needing explicit ignore list entries.
+    # When a user source pins/constrains a package that Odoo also pins, Odoo's stricter
+    # pin is skipped automatically so the user's version wins without an explicit ignore entry.
     user_constrained: set[str] = set()
     if extra_requirements:
         user_constrained |= _collect_constrained_packages(extra_requirements, target_env_for_markers)
@@ -720,7 +729,7 @@ def create_odoo_venv(  # noqa: C901
             user_constrained |= _collect_constrained_packages(
                 manifest["external_dependencies"]["python"], target_env_for_markers
             )
-    for pkg_name in user_constrained:
+    for pkg_name in user_constrained & base_pinned:
         if not any(not r.specifier for r in ignored_req_map[pkg_name]):
             ignored_req_map[pkg_name].append(Requirement(pkg_name))
             if verbose:
@@ -756,6 +765,8 @@ def create_odoo_venv(  # noqa: C901
             )
     for pkg_name in user_mentioned:
         for transitive in _KNOWN_TRANSITIVE_CONFLICTS.get(pkg_name, []):
+            if transitive not in base_pinned:
+                continue
             if not any(not r.specifier for r in ignored_req_map[transitive]):
                 ignored_req_map[transitive].append(Requirement(transitive))
                 if verbose:
