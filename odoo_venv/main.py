@@ -384,6 +384,7 @@ def _install_requirements_with_retry(
     Returns the list of package names that were skipped.
     """
     skipped: list[str] = []
+    skipped_normalized: set[str] = set()
 
     for attempt in range(max_retries + 1):
         install_args = ["uv", "pip", "install", "-r", tmp_path]
@@ -400,21 +401,43 @@ def _install_requirements_with_retry(
 
             pkg = _extract_failed_package(exc.stderr)
             if pkg is not None:
+                # Normalise name: treat hyphens, underscores and dots as equivalent
+                # so that e.g. "rfc6266-parser" matches "rfc6266_parser" in the file.
+                pkg_normalized = re.sub(r"[-_.]", "-", pkg.lower())
+
+                if pkg_normalized in skipped_normalized:
+                    # Already removed this package but it still fails — it is
+                    # likely pulled in as a transitive dependency and cannot be
+                    # skipped at the top-level requirements level.
+                    typer.echo(exc.stderr, file=sys.stderr)
+                    typer.secho(
+                        f"  ✗ '{pkg}' keeps failing even after being removed from requirements"
+                        " (likely a transitive dependency). Giving up.",
+                        fg=typer.colors.RED,
+                    )
+                    sys.exit(1)
+
                 typer.secho(
                     f"  ⚠  '{pkg}' failed to install — skipping and retrying...",
                     fg=typer.colors.YELLOW,
                 )
                 skipped.append(pkg)
+                skipped_normalized.add(pkg_normalized)
 
                 # Rewrite the requirements file without the failing package.
+                # Use normalised name comparison to handle hyphen/underscore variants.
                 with open(tmp_path, encoding="utf-8") as f:
                     lines = f.readlines()
-                pkg_lower = pkg.lower()
-                filtered = [
-                    line
-                    for line in lines
-                    if not re.match(rf"^{re.escape(pkg_lower)}([>=<!;\s\[]|$)", line.strip().lower())
-                ]
+                filtered = []
+                for line in lines:
+                    line_pkg = line.strip().split("#")[0].strip()
+                    try:
+                        line_normalized = re.sub(r"[-_.]", "-", Requirement(line_pkg).name.lower())
+                    except InvalidRequirement:
+                        match = PKG_NAME_PATTERN.match(line_pkg)
+                        line_normalized = re.sub(r"[-_.]", "-", match.group("lib_name").lower()) if match else None
+                    if line_normalized != pkg_normalized:
+                        filtered.append(line)
                 with open(tmp_path, "w", encoding="utf-8") as f:
                     f.writelines(filtered)
             else:
