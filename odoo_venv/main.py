@@ -182,6 +182,69 @@ def _run_commands_for_stage(
             _handle_cmd_error(command, stage, when_marker, extra_env)
 
 
+def _collect_constrained_packages(req_lines: list[str], target_env: dict[str, str]) -> set[str]:
+    """Return lowercase names of packages that appear with a version specifier.
+
+    Used to auto-detect user requirements that conflict with Odoo's pinned versions,
+    so Odoo's pin can be skipped in favour of the user's constraint.
+
+    >>> _collect_constrained_packages(["python-stdnum>=1.9", "debugpy", "# comment"], {})
+    {'python-stdnum'}
+    >>> _collect_constrained_packages(["python-stdnum", "foo==1.0"], {})
+    {'foo'}
+    """
+    result = set()
+    for line in req_lines:
+        line = line.split("#")[0].strip()
+        if not line:
+            continue
+        try:
+            req = Requirement(line)
+            if req.specifier and (not req.marker or req.marker.evaluate(environment=target_env)):
+                result.add(req.name.lower())
+        except InvalidRequirement:
+            pass
+    return result
+
+
+def _collect_mentioned_packages(req_lines: list[str], target_env: dict[str, str]) -> set[str]:
+    """Return lowercase names of all packages mentioned (with or without a version specifier).
+
+    Used to detect packages whose known transitive dependencies conflict with Odoo's pins,
+    even when the package itself carries no version modifier.
+
+    >>> sorted(_collect_mentioned_packages(["matplotlib", "debugpy==1.0", "# comment"], {}))
+    ['debugpy', 'matplotlib']
+    >>> _collect_mentioned_packages(["foo ; sys_platform == 'win32'"], {"sys_platform": "linux"})
+    set()
+    """
+    result = set()
+    for line in req_lines:
+        line = line.split("#")[0].strip()
+        if not line:
+            continue
+        try:
+            req = Requirement(line)
+            if not req.marker or req.marker.evaluate(environment=target_env):
+                result.add(req.name.lower())
+        except InvalidRequirement:
+            pass
+    return result
+
+
+# Packages whose presence in a user source implies that certain Odoo-pinned packages must
+# be ignored, because the listed package has a known transitive dependency that requires a
+# higher version than Odoo pins.
+# Format: { user_package: [odoo_pinned_packages_to_ignore] }
+_KNOWN_TRANSITIVE_CONFLICTS: dict[str, list[str]] = {
+    # matplotlib>=3.4 depends on pyparsing>=2.2.1, which conflicts with Odoo's older pin
+    "matplotlib": ["pyparsing"],
+    # google-books-api-wrapper depends on requests>=2.28 which depends on idna>=2.5,
+    # conflicting with Odoo's older idna pin
+    "google-books-api-wrapper": ["idna"],
+}
+
+
 def _keep_if_marker_matches(req_line: str, env: dict | None = None) -> str | None:
     req_line = req_line.split("#")[0].strip()
     if not req_line:
@@ -412,6 +475,91 @@ def create_odoo_venv(  # noqa: C901
                 fg=typer.colors.RED,
             )
 
+    # Hoist manifest discovery so it can be reused in both the pre-scan and the main loop.
+    manifest_files: list[Path] = []
+    if install_addons_manifests_requirements and addons_paths:
+        manifest_files = _find_manifest_files(addons_paths)
+
+    # Collect the set of packages actually present in the base requirement files
+    # (Odoo's requirements.txt and addons dirs).  Auto-ignore logic is restricted to
+    # this set so we never silently drop a package that Odoo doesn't pin.
+    base_pinned: set[str] = set()
+    for req_file in all_req_files:
+        base_pinned |= _collect_mentioned_packages(
+            req_file.read_text(encoding="utf-8").splitlines(), target_env_for_markers
+        )
+
+    # Pre-scan user sources for packages with version specifiers.
+    # When a user source pins/constrains a package that Odoo also pins, Odoo's stricter
+    # pin is skipped automatically so the user's version wins without an explicit ignore entry.
+    user_constrained: set[str] = set()
+    if extra_requirements:
+        user_constrained |= _collect_constrained_packages(extra_requirements, target_env_for_markers)
+    if extra_requirements_file:
+        _extra_req_path = Path(extra_requirements_file).expanduser().resolve()
+        if _extra_req_path.exists():
+            user_constrained |= _collect_constrained_packages(
+                _extra_req_path.read_text(encoding="utf-8").splitlines(), target_env_for_markers
+            )
+    if install_addons_dirs_requirements and addons_paths:
+        for path in addons_paths:
+            _addons_req = Path(path) / "requirements.txt"
+            if _addons_req.exists():
+                user_constrained |= _collect_constrained_packages(
+                    _addons_req.read_text(encoding="utf-8").splitlines(), target_env_for_markers
+                )
+    for manifest_file in manifest_files:
+        manifest = ast.literal_eval(manifest_file.read_text(encoding="utf-8"))
+        if "external_dependencies" in manifest and isinstance(manifest["external_dependencies"].get("python"), list):
+            user_constrained |= _collect_constrained_packages(
+                manifest["external_dependencies"]["python"], target_env_for_markers
+            )
+    for pkg_name in user_constrained & base_pinned:
+        if not any(not r.specifier for r in ignored_req_map[pkg_name]):
+            ignored_req_map[pkg_name].append(Requirement(pkg_name))
+            if verbose:
+                typer.secho(
+                    f"  i  Auto-ignoring Odoo's '{pkg_name}' pin (overridden by user requirement)",
+                    fg=typer.colors.CYAN,
+                )
+
+    # Collect all mentioned packages (regardless of specifier) to resolve known transitive
+    # conflicts — e.g. matplotlib (even without a version pin) implies pyparsing must not
+    # be constrained by Odoo's pin, because matplotlib depends on a higher version.
+    user_mentioned: set[str] = set()
+    if extra_requirements:
+        user_mentioned |= _collect_mentioned_packages(extra_requirements, target_env_for_markers)
+    if extra_requirements_file:
+        _extra_req_path = Path(extra_requirements_file).expanduser().resolve()
+        if _extra_req_path.exists():
+            user_mentioned |= _collect_mentioned_packages(
+                _extra_req_path.read_text(encoding="utf-8").splitlines(), target_env_for_markers
+            )
+    if install_addons_dirs_requirements and addons_paths:
+        for path in addons_paths:
+            _addons_req = Path(path) / "requirements.txt"
+            if _addons_req.exists():
+                user_mentioned |= _collect_mentioned_packages(
+                    _addons_req.read_text(encoding="utf-8").splitlines(), target_env_for_markers
+                )
+    for manifest_file in manifest_files:
+        manifest = ast.literal_eval(manifest_file.read_text(encoding="utf-8"))
+        if "external_dependencies" in manifest and isinstance(manifest["external_dependencies"].get("python"), list):
+            user_mentioned |= _collect_mentioned_packages(
+                manifest["external_dependencies"]["python"], target_env_for_markers
+            )
+    for pkg_name in user_mentioned:
+        for transitive in _KNOWN_TRANSITIVE_CONFLICTS.get(pkg_name, []):
+            if transitive not in base_pinned:
+                continue
+            if not any(not r.specifier for r in ignored_req_map[transitive]):
+                ignored_req_map[transitive].append(Requirement(transitive))
+                if verbose:
+                    typer.secho(
+                        f"  i  Auto-ignoring Odoo's '{transitive}' pin (transitively required by '{pkg_name}')",
+                        fg=typer.colors.CYAN,
+                    )
+
     with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt", encoding="utf-8") as tmp:
         tmp_path = tmp.name
         req_count = 0
@@ -436,8 +584,7 @@ def create_odoo_venv(  # noqa: C901
                         if _process_requirement_line(line, ignored_req_map, tmp, target_env_for_markers):
                             req_count += 1
 
-        if install_addons_manifests_requirements and addons_paths:
-            manifest_files = _find_manifest_files(addons_paths)
+        if manifest_files:
             for manifest_file in manifest_files:
                 with open(manifest_file, encoding="utf-8") as f:
                     content = f.read()
