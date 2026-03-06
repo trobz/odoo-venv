@@ -296,6 +296,7 @@ _UV_FAILURE_PATTERNS = [
     re.compile(r"Failed to download `(?P<pkg>[A-Za-z0-9_\-\.]+)"),
     re.compile(r"Failed to install `(?P<pkg>[A-Za-z0-9_\-\.]+)"),
     re.compile(r"error:.*`(?P<pkg>[A-Za-z0-9_\-\.]+)=="),
+    re.compile(r"Because (?P<pkg>[A-Za-z0-9_\-\.]+) was not found in the package registry"),
 ]
 
 
@@ -308,6 +309,8 @@ def _extract_failed_package(stderr: str) -> str | None:
     'vatnumber'
     >>> _extract_failed_package("Failed to download and install `lxml==4.9.3`")
     'lxml'
+    >>> _extract_failed_package("Because facturx was not found in the package registry")
+    'facturx'
     >>> _extract_failed_package("something went wrong with no package name") is None
     True
     """
