@@ -888,8 +888,19 @@ def create_odoo_venv(  # noqa: C901
                 for req in requirements:
                     typer.secho(f"      - {req}", fg=typer.colors.CYAN)
 
+        # Use UV_PRERELEASE=allow so uv considers pre-releases when the only stable
+        # release of a package is incompatible with the target Python version (e.g.
+        # graphql-server==3.0.0 requires Python>=3.9 but 3.0.0b9 works on Python 3.8).
+        # UV_PRERELEASE=if-necessary is insufficient here because uv only treats
+        # pre-releases as "necessary" when no stable version exists at all, not when
+        # a stable version exists but fails the Python version constraint.
+        # With "allow", uv still prefers stable versions whenever they satisfy all
+        # constraints, so pre-releases are not pulled in unnecessarily.
+        _uv_prerelease_env = {"UV_PRERELEASE": "allow"}
         if skip_on_failure:
-            skipped = _install_requirements_with_retry(tmp_path, venv_dir=venv_dir, verbose=verbose, dry_run=dry_run)
+            skipped = _install_requirements_with_retry(
+                tmp_path, venv_dir=venv_dir, verbose=verbose, dry_run=dry_run, extra_env=_uv_prerelease_env
+            )
             if skipped:
                 typer.secho(
                     f"  ⚠  Skipped {len(skipped)} package(s) due to installation failure: "
@@ -898,7 +909,7 @@ def create_odoo_venv(  # noqa: C901
                 )
         else:
             install_args = ["uv", "pip", "install", "-r", tmp_path]
-            _run_command(install_args, venv_dir=venv_dir, verbose=False, dry_run=dry_run)
+            _run_command(install_args, venv_dir=venv_dir, verbose=False, dry_run=dry_run, extra_env=_uv_prerelease_env)
         typer.secho(f"  ✔  {typer.style(req_count, fg=typer.colors.YELLOW)} Packages installed successfully")
 
     os.remove(tmp_path)
