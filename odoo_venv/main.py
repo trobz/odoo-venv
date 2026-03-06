@@ -528,6 +528,15 @@ _NO_BUILD_ISOLATION_PACKAGES: dict[str, str] = {
     "vatnumber": "odoo_version <= '13.0'",
     "suds-jurko": "odoo_version <= '13.0'",
     "rfc6266-parser": "",
+    "mysql-python": "",
+}
+
+# Hidden build-time dependencies that must be pre-installed in the venv before a
+# --no-build-isolation install can succeed.  These are not declared by the package
+# itself (hence "hidden") and are not part of the regular requirements.
+# Format: { normalised_pkg_name: [build_dep, ...] }
+_NBI_BUILD_DEPS: dict[str, list[str]] = {
+    "mysql-python": ["ConfigParser"],
 }
 
 
@@ -930,7 +939,16 @@ def create_odoo_venv(  # noqa: C901
     # Install packages that cannot be built in isolation (e.g. vatnumber, rfc6266-parser).
     if no_build_isolation_specs:
         typer.secho("\nInstalling packages that require --no-build-isolation...")
-        for spec in no_build_isolation_specs.values():
+        for pkg_name, spec in no_build_isolation_specs.items():
+            if pkg_name in _NBI_BUILD_DEPS:
+                build_deps = _NBI_BUILD_DEPS[pkg_name]
+                typer.secho(f"  Installing hidden build dependencies for {pkg_name}: {', '.join(build_deps)}...")
+                _run_command(
+                    ["uv", "pip", "install", *build_deps],
+                    venv_dir=venv_dir,
+                    verbose=verbose,
+                    dry_run=dry_run,
+                )
             _run_command(
                 ["uv", "pip", "install", "--no-build-isolation", spec],
                 venv_dir=venv_dir,
