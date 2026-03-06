@@ -39,6 +39,7 @@ _MANIFEST_IMPORT_TO_PIP: dict[str, str] = {
     "ldap": "python-ldap",
     "voicent": "Voicent-Python",
     "Asterisk": "py-Asterisk",
+    "facturx": "factur-x",
 }
 
 _COMPARISON_OPS = {
