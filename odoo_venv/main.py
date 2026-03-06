@@ -38,6 +38,7 @@ _MANIFEST_IMPORT_TO_PIP: dict[str, str] = {
     "sklearn": "scikit-learn",
     "ldap": "python-ldap",
     "voicent": "Voicent-Python",
+    "Asterisk": "py-Asterisk",
 }
 
 _COMPARISON_OPS = {
