@@ -168,7 +168,6 @@ def _run_commands_for_stage(
     python_version: str | None,
     venv_dir: Path,
     verbose: bool,
-    dry_run: bool,
 ):
     """Run extra commands for a specific stage.
 
@@ -179,7 +178,6 @@ def _run_commands_for_stage(
         python_version: The Python version
         venv_dir: The virtual environment directory
         verbose: Whether to print verbose output
-        dry_run: Whether to do a dry run
     """
     if not extra_commands:
         return
@@ -210,7 +208,7 @@ def _run_commands_for_stage(
         _print_cmd_info(cmd_spec, stage, verbose)
 
         try:
-            _run_command(command, venv_dir=venv_dir, verbose=verbose, dry_run=dry_run, extra_env=extra_env)
+            _run_command(command, venv_dir=venv_dir, verbose=verbose, extra_env=extra_env)
         except SystemExit:
             _handle_cmd_error(command, stage, when_marker, extra_env)
 
@@ -367,15 +365,12 @@ def _run_command(
     venv_dir: Path | None = None,
     cwd: Path | None = None,
     verbose: bool = False,
-    dry_run: bool = False,
     extra_env: dict[str, str] | None = None,
     raise_on_error: bool = False,
 ):
+
     if verbose:
         typer.secho(f"  → Running: {' '.join(command)}", fg=typer.colors.BLUE)
-
-    if dry_run:
-        return
 
     env = os.environ.copy()
     if venv_dir:
@@ -437,7 +432,6 @@ def _install_requirements_with_retry(
     tmp_path: str,
     venv_dir: Path,
     verbose: bool,
-    dry_run: bool,
     max_retries: int = 10,
 ) -> list[str]:
     """Attempt to install requirements, skipping packages that fail to install.
@@ -458,7 +452,6 @@ def _install_requirements_with_retry(
                 install_args,
                 venv_dir=venv_dir,
                 verbose=False,
-                dry_run=dry_run,
                 raise_on_error=True,
                 extra_env={"UV_PRERELEASE": "allow"},
             )
@@ -672,7 +665,6 @@ def create_odoo_venv(  # noqa: C901
     extra_requirements: list[str] | None = None,
     extra_commands: list[dict] | None = None,
     verbose: bool = False,
-    dry_run: bool = False,
     skip_on_failure: bool = False,
 ):
     odoo_dir = Path(odoo_dir).expanduser().resolve()
@@ -713,16 +705,11 @@ def create_odoo_venv(  # noqa: C901
             _run_command(
                 ["uv", "python", "install", python_version],
                 verbose=verbose,
-                dry_run=dry_run,
             )
     venv_command = ["uv", "venv", str(venv_dir)]
     if python_version:
         venv_command.extend(["--python", python_version])
-    _run_command(
-        venv_command,
-        verbose=verbose,
-        dry_run=dry_run,
-    )
+    _run_command(venv_command, verbose=verbose)
     typer.secho(
         f"  ✔ Virtual environment created at {typer.style(str(venv_dir), fg=typer.colors.YELLOW)}",
     )
@@ -735,10 +722,9 @@ def create_odoo_venv(  # noqa: C901
         python_version,
         venv_dir,
         verbose,
-        dry_run,
     )
 
-    # 3. Install requirements
+    # 3. Process requirements
     all_req_files = []
     if install_odoo_requirements:
         odoo_reqs_file = odoo_dir / "requirements.txt"
@@ -916,7 +902,7 @@ def create_odoo_venv(  # noqa: C901
                     typer.secho(f"      - {req}", fg=typer.colors.CYAN)
 
         if skip_on_failure:
-            skipped = _install_requirements_with_retry(tmp_path, venv_dir=venv_dir, verbose=verbose, dry_run=dry_run)
+            skipped = _install_requirements_with_retry(tmp_path, venv_dir=venv_dir, verbose=verbose)
             if skipped:
                 typer.secho(
                     f"  ⚠  Skipped {len(skipped)} package(s) due to installation failure: "
@@ -924,12 +910,10 @@ def create_odoo_venv(  # noqa: C901
                     fg=typer.colors.YELLOW,
                 )
         else:
-            install_args = ["uv", "pip", "install", "-r", tmp_path]
             _run_command(
-                install_args,
+                ["uv", "pip", "install", "-r", tmp_path],
                 venv_dir=venv_dir,
                 verbose=False,
-                dry_run=dry_run,
                 extra_env={"UV_PRERELEASE": "allow"},
             )
         typer.secho(f"  ✔  {typer.style(req_count, fg=typer.colors.YELLOW)} Packages installed successfully")
@@ -944,7 +928,6 @@ def create_odoo_venv(  # noqa: C901
             ["uv", "pip", "install", "setuptools<58.0", "wheel"],
             venv_dir=venv_dir,
             verbose=verbose,
-            dry_run=dry_run,
         )
         typer.secho("  ✔  setuptools<58.0 wheel installed")
 
@@ -959,13 +942,11 @@ def create_odoo_venv(  # noqa: C901
                     ["uv", "pip", "install", *build_deps],
                     venv_dir=venv_dir,
                     verbose=verbose,
-                    dry_run=dry_run,
                 )
             _run_command(
                 ["uv", "pip", "install", "--no-build-isolation", spec],
                 venv_dir=venv_dir,
                 verbose=verbose,
-                dry_run=dry_run,
             )
             typer.secho(f"  ✔  {typer.style(spec, fg=typer.colors.YELLOW)} installed (no build isolation)")
 
@@ -977,7 +958,6 @@ def create_odoo_venv(  # noqa: C901
         python_version,
         venv_dir,
         verbose,
-        dry_run,
     )
 
     # 4. Install Odoo in editable mode
@@ -987,7 +967,6 @@ def create_odoo_venv(  # noqa: C901
             ["uv", "pip", "install", "-e", f"file://{odoo_dir}#egg=odoo"],
             venv_dir=venv_dir,
             verbose=verbose,
-            dry_run=dry_run,
         )
         typer.secho(
             "  ✔  Installed Odoo in editable mode",
@@ -1001,7 +980,6 @@ def create_odoo_venv(  # noqa: C901
             python_version,
             venv_dir,
             verbose,
-            dry_run,
         )
 
     typer.secho("\n✅ Environment setup complete!", fg=typer.colors.GREEN)

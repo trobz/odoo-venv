@@ -305,10 +305,6 @@ def create(
         bool,
         typer.Option(help="Display more details to user"),
     ] = False,
-    dry_run: Annotated[
-        bool,
-        typer.Option(),
-    ] = False,
     skip_on_failure: Annotated[
         bool,
         typer.Option(
@@ -409,7 +405,6 @@ def create(
         extra_requirements=extra_requirements_list,
         extra_commands=extra_commands,
         verbose=verbose,
-        dry_run=dry_run,
         skip_on_failure=skip_on_failure,
     )
 
