@@ -37,6 +37,7 @@ _MANIFEST_IMPORT_TO_PIP: dict[str, str] = {
     "bs4": "beautifulsoup4",
     "sklearn": "scikit-learn",
     "ldap": "python-ldap",
+    "voicent": "Voicent-Python",
 }
 
 _COMPARISON_OPS = {
