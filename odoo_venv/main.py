@@ -341,7 +341,6 @@ def _scan_user_sources(
     return result
 
 
-
 def _keep_if_marker_matches(req_line: str, env: dict | None = None) -> str | None:
     req_line = req_line.split("#")[0].strip()
     if not req_line:
