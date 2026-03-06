@@ -17,6 +17,28 @@ PKG_NAME_PATTERN = re.compile(r"(?P<lib_name>[a-z0-9A-Z\-\_\.]+)((>|<|=)=)?(.*)"
 
 VALID_STAGES = {"after_venv", "after_requirements", "after_odoo_install"}
 
+# In Odoo <= 12.0, external_dependencies.python lists importable module names, not pip package
+# names (the module loader used importlib.import_module to validate them).  This mapping translates
+# the most common mismatches so we can install the correct pip package.
+# See: https://github.com/odoo/odoo/blob/12.0/odoo/addons/base/models/ir_module.py#L316-L331
+#
+# Starting from 13.0 modules should list pip package names, but many (especially OCA ports)
+# still use import names in practice, so the mapping is applied unconditionally.
+_MANIFEST_IMPORT_TO_PIP: dict[str, str] = {
+    "stdnum": "python-stdnum",
+    "Crypto": "pycryptodome",
+    "OpenSSL": "pyOpenSSL",
+    "dateutil": "python-dateutil",
+    "yaml": "pyyaml",
+    "usb": "pyusb",
+    "serial": "pyserial",
+    "PIL": "Pillow",
+    "magic": "python-magic",
+    "bs4": "beautifulsoup4",
+    "sklearn": "scikit-learn",
+    "ldap": "python-ldap",
+}
+
 _COMPARISON_OPS = {
     "<": operator.lt,
     "<=": operator.le,
@@ -240,6 +262,26 @@ _KNOWN_TRANSITIVE_CONFLICTS: dict[str, list[str]] = {
     # matplotlib>=3.4 depends on pyparsing>=2.2.1, which conflicts with Odoo's older pin
     "matplotlib": ["pyparsing"],
 }
+
+
+def _resolve_manifest_dep(dep: str) -> str:
+    """Translate a manifest python dependency to its pip package name.
+
+    In Odoo <= 12.0 external_dependencies.python entries are importable module names
+    (e.g. ``stdnum``) because the loader validated them via importlib.import_module.
+    See: https://github.com/odoo/odoo/blob/12.0/odoo/addons/base/models/ir_module.py#L316-L331
+
+    Starting from 13.0 they should be pip package names, but many modules (especially
+    OCA ports) still use import names in practice, so the mapping is applied unconditionally.
+
+    >>> _resolve_manifest_dep("stdnum")
+    'python-stdnum'
+    >>> _resolve_manifest_dep("dateutil")
+    'python-dateutil'
+    >>> _resolve_manifest_dep("unknown_pkg")
+    'unknown_pkg'
+    """
+    return _MANIFEST_IMPORT_TO_PIP.get(dep, dep)
 
 
 def _keep_if_marker_matches(req_line: str, env: dict | None = None) -> str | None:
@@ -580,7 +622,7 @@ def create_odoo_venv(  # noqa: C901
                     ):
                         for dep in manifest["external_dependencies"]["python"]:
                             if _process_requirement_line(
-                                dep,
+                                _resolve_manifest_dep(dep),
                                 ignored_req_map,
                                 tmp,
                                 target_env_for_markers,
