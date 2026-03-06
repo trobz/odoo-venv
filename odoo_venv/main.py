@@ -44,6 +44,7 @@ _MANIFEST_IMPORT_TO_PIP: dict[str, str] = {
     "u2flib_server": "python-u2flib-server",
     "git": "GitPython",
     "accept_language": "parse-accept-language",
+    "dns": "dnspython",
 }
 
 _COMPARISON_OPS = {
