@@ -40,6 +40,7 @@ _MANIFEST_IMPORT_TO_PIP: dict[str, str] = {
     "voicent": "Voicent-Python",
     "Asterisk": "py-Asterisk",
     "facturx": "factur-x",
+    "MySQLdb": "MySQL-python",
 }
 
 _COMPARISON_OPS = {
