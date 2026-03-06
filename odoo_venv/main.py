@@ -42,6 +42,7 @@ _MANIFEST_IMPORT_TO_PIP: dict[str, str] = {
     "facturx": "factur-x",
     "mysqldb": "MySQL-python",
     "u2flib_server": "python-u2flib-server",
+    "u2flib-server": "python-u2flib-server",
     "git": "GitPython",
     "accept_language": "parse-accept-language",
     "dns": "dnspython",
