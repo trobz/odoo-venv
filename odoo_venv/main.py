@@ -261,6 +261,41 @@ def _collect_constrained_packages(req_lines: list[str], target_env: dict[str, st
     return result
 
 
+def _collect_mentioned_packages(req_lines: list[str], target_env: dict[str, str]) -> set[str]:
+    """Return lowercase names of all packages mentioned (with or without a version specifier).
+
+    Used to detect packages whose known transitive dependencies conflict with Odoo's pins,
+    even when the package itself carries no version modifier.
+
+    >>> sorted(_collect_mentioned_packages(["matplotlib", "debugpy==1.0", "# comment"], {}))
+    ['debugpy', 'matplotlib']
+    >>> _collect_mentioned_packages(["foo ; sys_platform == 'win32'"], {"sys_platform": "linux"})
+    set()
+    """
+    result = set()
+    for line in req_lines:
+        line = line.split("#")[0].strip()
+        if not line:
+            continue
+        try:
+            req = Requirement(line)
+            if not req.marker or req.marker.evaluate(environment=target_env):
+                result.add(req.name.lower())
+        except InvalidRequirement:
+            pass
+    return result
+
+
+# Packages whose presence in a user source implies that certain Odoo-pinned packages must
+# be ignored, because the listed package has a known transitive dependency that requires a
+# higher version than Odoo pins.
+# Format: { user_package: [odoo_pinned_packages_to_ignore] }
+_KNOWN_TRANSITIVE_CONFLICTS: dict[str, list[str]] = {
+    # matplotlib>=3.4 depends on pyparsing>=2.2.1, which conflicts with Odoo's older pin
+    "matplotlib": ["pyparsing"],
+}
+
+
 def _keep_if_marker_matches(req_line: str, env: dict | None = None) -> str | None:
     req_line = req_line.split("#")[0].strip()
     if not req_line:
@@ -660,6 +695,41 @@ def create_odoo_venv(  # noqa: C901
                     f"  i  Auto-ignoring Odoo's '{pkg_name}' pin (overridden by user requirement)",
                     fg=typer.colors.CYAN,
                 )
+
+    # Collect all mentioned packages (regardless of specifier) to resolve known transitive
+    # conflicts — e.g. matplotlib (even without a version pin) implies pyparsing must not
+    # be constrained by Odoo's pin, because matplotlib depends on a higher version.
+    user_mentioned: set[str] = set()
+    if extra_requirements:
+        user_mentioned |= _collect_mentioned_packages(extra_requirements, target_env_for_markers)
+    if extra_requirements_file:
+        _extra_req_path = Path(extra_requirements_file).expanduser().resolve()
+        if _extra_req_path.exists():
+            user_mentioned |= _collect_mentioned_packages(
+                _extra_req_path.read_text(encoding="utf-8").splitlines(), target_env_for_markers
+            )
+    if install_addons_dirs_requirements and addons_paths:
+        for path in addons_paths:
+            _addons_req = Path(path) / "requirements.txt"
+            if _addons_req.exists():
+                user_mentioned |= _collect_mentioned_packages(
+                    _addons_req.read_text(encoding="utf-8").splitlines(), target_env_for_markers
+                )
+    for manifest_file in manifest_files:
+        manifest = ast.literal_eval(manifest_file.read_text(encoding="utf-8"))
+        if "external_dependencies" in manifest and isinstance(manifest["external_dependencies"].get("python"), list):
+            user_mentioned |= _collect_mentioned_packages(
+                manifest["external_dependencies"]["python"], target_env_for_markers
+            )
+    for pkg_name in user_mentioned:
+        for transitive in _KNOWN_TRANSITIVE_CONFLICTS.get(pkg_name, []):
+            if not any(not r.specifier for r in ignored_req_map[transitive]):
+                ignored_req_map[transitive].append(Requirement(transitive))
+                if verbose:
+                    typer.secho(
+                        f"  i  Auto-ignoring Odoo's '{transitive}' pin (transitively required by '{pkg_name}')",
+                        fg=typer.colors.CYAN,
+                    )
 
     with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt", encoding="utf-8") as tmp:
         tmp_path = tmp.name
