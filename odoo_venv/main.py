@@ -496,6 +496,8 @@ def _collect_no_build_isolation_specs(
 
     >>> _collect_no_build_isolation_specs(["rfc6266-parser==0.0.7", "requests"], {}, "17.0", None)
     {'rfc6266-parser': 'rfc6266-parser==0.0.7'}
+    >>> _collect_no_build_isolation_specs(["rfc6266_parser==0.0.6", "requests"], {}, "17.0", None)
+    {'rfc6266-parser': 'rfc6266_parser==0.0.6'}
     >>> _collect_no_build_isolation_specs(["vatnumber", "requests"], {}, "14.0", None)
     {}
     >>> _collect_no_build_isolation_specs(["vatnumber==1.2", "requests"], {}, "13.0", None)
@@ -508,14 +510,14 @@ def _collect_no_build_isolation_specs(
             continue
         try:
             req = Requirement(line)
-            pkg_lower = req.name.lower()
-            if pkg_lower not in _NO_BUILD_ISOLATION_PACKAGES:
+            pkg_normalized = re.sub(r"[-_.]", "-", req.name.lower())
+            if pkg_normalized not in _NO_BUILD_ISOLATION_PACKAGES:
                 continue
             if req.marker and not req.marker.evaluate(environment=target_env):
                 continue
-            when_marker = _NO_BUILD_ISOLATION_PACKAGES[pkg_lower]
+            when_marker = _NO_BUILD_ISOLATION_PACKAGES[pkg_normalized]
             if _evaluate_marker(when_marker, odoo_version, python_version):
-                result[pkg_lower] = f"{req.name}{req.specifier}"
+                result[pkg_normalized] = f"{req.name}{req.specifier}"
         except InvalidRequirement:
             pass
     return result
@@ -560,8 +562,9 @@ def _process_requirement_line(
         req = Requirement(valid_line)
 
         should_ignore = False
-        if req.name.lower() in ignored_req_map:
-            for ignored_req in ignored_req_map[req.name.lower()]:
+        req_name_normalized = re.sub(r"[-_.]", "-", req.name.lower())
+        if req_name_normalized in ignored_req_map:
+            for ignored_req in ignored_req_map[req_name_normalized]:
                 if not ignored_req.specifier or (
                     req.specifier and (req.specifier & ignored_req.specifier) == req.specifier
                 ):
