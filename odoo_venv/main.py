@@ -370,6 +370,7 @@ def _install_requirements_with_retry(
                     )
                     sys.exit(1)
 
+                typer.echo(exc.stderr, file=sys.stderr)
                 typer.secho(
                     f"  ⚠  '{pkg}' failed to install — skipping and retrying...",
                     fg=typer.colors.YELLOW,
