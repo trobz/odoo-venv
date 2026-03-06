@@ -231,6 +231,67 @@ def _run_command(
     return result
 
 
+# Packages that cannot be installed in an isolated build environment (they rely on
+# build tools already present in the venv).  Detected in any requirement source
+# (Odoo's own requirements.txt, addons dirs, user sources, manifests), excluded from
+# the batch install, and re-installed afterwards with --no-build-isolation.
+# Format: { normalised_pkg_name: when_marker }  (empty when_marker = always apply)
+_NO_BUILD_ISOLATION_PACKAGES: dict[str, str] = {
+    "vatnumber": "odoo_version <= '13.0'",
+    "suds-jurko": "odoo_version <= '13.0'",
+    "rfc6266-parser": "",
+    "mysql-python": "",
+}
+
+# Hidden build-time dependencies that must be pre-installed in the venv before a
+# --no-build-isolation install can succeed.  These are not declared by the package
+# itself (hence "hidden") and are not part of the regular requirements.
+# Format: { normalised_pkg_name: [build_dep, ...] }
+_NBI_BUILD_DEPS: dict[str, list[str]] = {
+    "mysql-python": ["ConfigParser"],
+}
+
+
+def _collect_no_build_isolation_specs(
+    req_lines: list[str],
+    target_env: dict[str, str],
+    odoo_version: str,
+    python_version: str | None,
+) -> dict[str, str]:
+    """Return {normalised_name: install_spec} for packages that need --no-build-isolation.
+
+    Evaluates both the requirement's own environment marker and the package-level
+    when marker from ``_NO_BUILD_ISOLATION_PACKAGES``.
+
+    >>> _collect_no_build_isolation_specs(["rfc6266-parser==0.0.7", "requests"], {}, "17.0", None)
+    {'rfc6266-parser': 'rfc6266-parser==0.0.7'}
+    >>> _collect_no_build_isolation_specs(["rfc6266_parser==0.0.6", "requests"], {}, "17.0", None)
+    {'rfc6266-parser': 'rfc6266_parser==0.0.6'}
+    >>> _collect_no_build_isolation_specs(["vatnumber", "requests"], {}, "14.0", None)
+    {}
+    >>> _collect_no_build_isolation_specs(["vatnumber==1.2", "requests"], {}, "13.0", None)
+    {'vatnumber': 'vatnumber==1.2'}
+    """
+    result: dict[str, str] = {}
+    for line in req_lines:
+        line = line.split("#")[0].strip()
+        if not line:
+            continue
+        try:
+            req = Requirement(line)
+            pkg_normalized = re.sub(r"[-_.]", "-", req.name.lower())
+            if pkg_normalized not in _NO_BUILD_ISOLATION_PACKAGES:
+                continue
+            if req.marker and not req.marker.evaluate(environment=target_env):
+                continue
+            when_marker = _NO_BUILD_ISOLATION_PACKAGES[pkg_normalized]
+            if _evaluate_marker(when_marker, odoo_version, python_version):
+                result[pkg_normalized] = f"{req.name}{req.specifier}"
+        except InvalidRequirement:
+            pass
+    return result
+
+
 def _get_python_version_from_odoo_src(odoo_dir: Path) -> str | None:
     init_py = odoo_dir / "odoo" / "__init__.py"
     if not init_py.is_file():
@@ -270,8 +331,9 @@ def _process_requirement_line(
         req = Requirement(valid_line)
 
         should_ignore = False
-        if req.name.lower() in ignored_req_map:
-            for ignored_req in ignored_req_map[req.name.lower()]:
+        req_name_normalized = re.sub(r"[-_.]", "-", req.name.lower())
+        if req_name_normalized in ignored_req_map:
+            for ignored_req in ignored_req_map[req_name_normalized]:
                 if not ignored_req.specifier or (
                     req.specifier and (req.specifier & ignored_req.specifier) == req.specifier
                 ):
@@ -412,6 +474,39 @@ def create_odoo_venv(  # noqa: C901
                 fg=typer.colors.RED,
             )
 
+    # Detect packages that require --no-build-isolation from all requirement sources.
+    # They are excluded from the batch install and installed separately afterwards.
+    _nbi_args = (target_env_for_markers, odoo_version, python_version)
+    no_build_isolation_specs: dict[str, str] = {}
+    for req_file in all_req_files:
+        no_build_isolation_specs.update(
+            _collect_no_build_isolation_specs(req_file.read_text(encoding="utf-8").splitlines(), *_nbi_args)
+        )
+    if extra_requirements:
+        no_build_isolation_specs.update(_collect_no_build_isolation_specs(extra_requirements, *_nbi_args))
+    if extra_requirements_file:
+        _extra_req_path = Path(extra_requirements_file).expanduser().resolve()
+        if _extra_req_path.exists():
+            no_build_isolation_specs.update(
+                _collect_no_build_isolation_specs(_extra_req_path.read_text(encoding="utf-8").splitlines(), *_nbi_args)
+            )
+    if install_addons_manifests_requirements and addons_paths:
+        for manifest_file in _find_manifest_files(addons_paths):
+            manifest = ast.literal_eval(manifest_file.read_text(encoding="utf-8"))
+            if "external_dependencies" in manifest and isinstance(
+                manifest["external_dependencies"].get("python"), list
+            ):
+                no_build_isolation_specs.update(
+                    _collect_no_build_isolation_specs(manifest["external_dependencies"]["python"], *_nbi_args)
+                )
+    for pkg_name in no_build_isolation_specs:
+        ignored_req_map[pkg_name].append(Requirement(pkg_name))
+        if verbose:
+            typer.secho(
+                f"  i  Auto-ignoring '{pkg_name}' (will install separately with --no-build-isolation)",
+                fg=typer.colors.CYAN,
+            )
+
     with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt", encoding="utf-8") as tmp:
         tmp_path = tmp.name
         req_count = 0
@@ -483,10 +578,40 @@ def create_odoo_venv(  # noqa: C901
 
     os.remove(tmp_path)
 
+    # Odoo <= 13.0 requires setuptools<58 (2to3 support removed in 58.0) and wheel
+    # as build tools for packages like vatnumber that use the legacy setup.py build system.
+    if _evaluate_marker("odoo_version <= '13.0'", odoo_version, python_version):
+        typer.secho("\nInstalling legacy build tools for Odoo <= 13.0...")
+        _run_command(
+            ["uv", "pip", "install", "setuptools<58.0", "wheel"],
+            venv_dir=venv_dir,
+            verbose=verbose,
+            dry_run=dry_run,
+        )
+        typer.secho("  ✔  setuptools<58.0 wheel installed")
+
+    # Install packages that cannot be built in isolation (e.g. vatnumber, rfc6266-parser).
+    if no_build_isolation_specs:
+        typer.secho("\nInstalling packages that require --no-build-isolation...")
+        for pkg_name, spec in no_build_isolation_specs.items():
+            if pkg_name in _NBI_BUILD_DEPS:
+                build_deps = _NBI_BUILD_DEPS[pkg_name]
+                typer.secho(f"  Installing hidden build dependencies for {pkg_name}: {', '.join(build_deps)}...")
+                _run_command(
+                    ["uv", "pip", "install", *build_deps],
+                    venv_dir=venv_dir,
+                    verbose=verbose,
+                    dry_run=dry_run,
+                )
+            _run_command(
+                ["uv", "pip", "install", "--no-build-isolation", spec],
+                venv_dir=venv_dir,
+                verbose=verbose,
+                dry_run=dry_run,
+            )
+            typer.secho(f"  ✔  {typer.style(spec, fg=typer.colors.YELLOW)} installed (no build isolation)")
+
     # Installation order: venv → requirements → odoo (editable)
-    # Odoo installed AFTER requirements so that extra_commands at
-    # 'after_requirements' stage can set up build dependencies
-    # (e.g., setuptools<58 for vatnumber on Odoo <= 13.0)
     _run_commands_for_stage(
         "after_requirements",
         extra_commands,
