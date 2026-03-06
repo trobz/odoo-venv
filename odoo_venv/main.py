@@ -2,6 +2,7 @@ import ast
 import operator
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -196,6 +197,11 @@ def _keep_if_marker_matches(req_line: str, env: dict | None = None) -> str | Non
     return f"{req.name}{spec}"
 
 
+def _is_uv_pip_install(command: list[str]) -> bool:
+    """Check if command is a uv pip install command."""
+    return len(command) >= 3 and command[:3] == ["uv", "pip", "install"]
+
+
 def _run_command(
     command: list[str],
     venv_dir: Path | None = None,
@@ -204,11 +210,16 @@ def _run_command(
     dry_run: bool = False,
     extra_env: dict[str, str] | None = None,
 ):
+    if dry_run:
+        if _is_uv_pip_install(command):
+            # Use uv's native --dry-run for real dependency resolution
+            command = [*command, "--dry-run"]
+        else:
+            # Skip non-pip commands (arbitrary extra commands, etc.)
+            return
+
     if verbose:
         typer.secho(f"  → Running: {' '.join(command)}", fg=typer.colors.BLUE)
-
-    if dry_run:
-        return
 
     env = os.environ.copy()
     if venv_dir:
@@ -340,179 +351,44 @@ def create_odoo_venv(  # noqa: C901
         target_env_for_markers["python_full_version"] = current_default_env["python_full_version"]
 
     # 2. Create virtual environment
-    typer.secho("Creating virtual environment...")
-    if python_version:
-        found = subprocess.run(  # noqa: S603
-            ["uv", "python", "find", python_version],  # noqa: S607
-            capture_output=True,
+    # Guard: abort if venv already exists in dry-run mode to avoid destroying it
+    if dry_run and venv_dir.exists():
+        typer.secho(
+            f"error: --dry-run aborted: venv already exists at {venv_dir}. Remove it first or use a different path.",
+            fg=typer.colors.RED,
         )
-        if found.returncode != 0:
-            _run_command(
-                ["uv", "python", "install", python_version],
-                verbose=verbose,
-                dry_run=dry_run,
+        sys.exit(1)
+
+    try:
+        typer.secho("Creating virtual environment...")
+        if python_version:
+            found = subprocess.run(  # noqa: S603
+                ["uv", "python", "find", python_version],  # noqa: S607
+                capture_output=True,
             )
-    venv_command = ["uv", "venv", str(venv_dir)]
-    if python_version:
-        venv_command.extend(["--python", python_version])
-    _run_command(
-        venv_command,
-        verbose=verbose,
-        dry_run=dry_run,
-    )
-    typer.secho(
-        f"  ✔ Virtual environment created at {typer.style(str(venv_dir), fg=typer.colors.YELLOW)}",
-    )
-
-    # Run extra commands for 'after_venv' stage
-    _run_commands_for_stage(
-        "after_venv",
-        extra_commands,
-        odoo_version,
-        python_version,
-        venv_dir,
-        verbose,
-        dry_run,
-    )
-
-    # 3. Install requirements
-    all_req_files = []
-    if install_odoo_requirements:
-        odoo_reqs_file = odoo_dir / "requirements.txt"
-        if odoo_reqs_file.exists():
-            all_req_files.append(odoo_reqs_file)
-
-    if install_addons_dirs_requirements and addons_paths:
-        for path in addons_paths:
-            addons_req_file = Path(path) / "requirements.txt"
-            if addons_req_file.exists():
-                all_req_files.append(addons_req_file)
-
-    ignore_req_lines = []
-    if ignore_from_odoo_requirements:
-        ignore_req_lines.extend([pkg.strip() for pkg in ignore_from_odoo_requirements.split(",") if pkg.strip()])
-    if ignore_from_addons_dirs_requirements:
-        ignore_req_lines.extend([pkg.strip() for pkg in ignore_from_addons_dirs_requirements.split(",") if pkg.strip()])
-    if ignore_from_addons_manifests_requirements:
-        ignore_req_lines.extend([
-            pkg.strip() for pkg in ignore_from_addons_manifests_requirements.split(",") if pkg.strip()
-        ])
-
-    ignored_req_map = defaultdict(list)
-    for req_line in ignore_req_lines:
-        try:
-            req = Requirement(req_line)
-            if not req.marker or req.marker.evaluate(target_env_for_markers):
-                new_req_str = f"{req.name}{req.specifier}"
-                new_req = Requirement(new_req_str)
-                ignored_req_map[new_req.name.lower()].append(new_req)
-        except InvalidRequirement:
-            typer.secho(
-                f"  ⚠ Invalid requirement in ignore list: {req_line}",
-                fg=typer.colors.RED,
-            )
-
-    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt", encoding="utf-8") as tmp:
-        tmp_path = tmp.name
-        req_count = 0
-
-        if all_req_files:
-            for req_file in all_req_files:
-                with open(req_file, encoding="utf-8") as f:
-                    for line in f:
-                        if _process_requirement_line(line, ignored_req_map, tmp, target_env_for_markers):
-                            req_count += 1
-
-        if extra_requirements:
-            for req_line in extra_requirements:
-                if _process_requirement_line(req_line, ignored_req_map, tmp, target_env_for_markers):
-                    req_count += 1
-
-        if extra_requirements_file:
-            extra_req_file = Path(extra_requirements_file).expanduser().resolve()
-            if extra_req_file.exists():
-                with open(extra_req_file, encoding="utf-8") as f:
-                    for line in f:
-                        if _process_requirement_line(line, ignored_req_map, tmp, target_env_for_markers):
-                            req_count += 1
-
-        if install_addons_manifests_requirements and addons_paths:
-            manifest_files = _find_manifest_files(addons_paths)
-            for manifest_file in manifest_files:
-                with open(manifest_file, encoding="utf-8") as f:
-                    content = f.read()
-                    manifest = ast.literal_eval(content)
-                    if "external_dependencies" in manifest and isinstance(
-                        manifest["external_dependencies"].get("python"), list
-                    ):
-                        for dep in manifest["external_dependencies"]["python"]:
-                            if _process_requirement_line(
-                                dep,
-                                ignored_req_map,
-                                tmp,
-                                target_env_for_markers,
-                            ):
-                                req_count += 1
-
-    if req_count > 0:
-        install_args = [
-            "uv",
-            "pip",
-            "install",
-            "-r",
-            tmp_path,
-        ]
-        typer.secho("\nInstalling required packages...")
-        if verbose:
-            if ignored_req_map:
-                typer.secho(
-                    "   Packages to ignore:",
-                    fg=typer.colors.BLUE,
+            if found.returncode != 0:
+                # Always run: venv needs Python installed
+                _run_command(
+                    ["uv", "python", "install", python_version],
+                    verbose=verbose,
+                    dry_run=False,
                 )
-                for pkg_name in sorted(ignored_req_map.keys()):
-                    for req in ignored_req_map[pkg_name]:
-                        typer.secho(f"      - {req}", fg=typer.colors.YELLOW)
-            with open(tmp_path, encoding="utf-8") as f:
-                requirements = f.read().splitlines()
-                typer.secho("   Packages to install:", fg=typer.colors.BLUE)
-                for req in requirements:
-                    typer.secho(f"      - {req}", fg=typer.colors.CYAN)
-
-        _run_command(install_args, venv_dir=venv_dir, verbose=False, dry_run=dry_run)
-        typer.secho(f"  ✔  {typer.style(req_count, fg=typer.colors.YELLOW)} Packages installed successfully")
-
-    os.remove(tmp_path)
-
-    # Installation order: venv → requirements → odoo (editable)
-    # Odoo installed AFTER requirements so that extra_commands at
-    # 'after_requirements' stage can set up build dependencies
-    # (e.g., setuptools<58 for vatnumber on Odoo <= 13.0)
-    _run_commands_for_stage(
-        "after_requirements",
-        extra_commands,
-        odoo_version,
-        python_version,
-        venv_dir,
-        verbose,
-        dry_run,
-    )
-
-    # 4. Install Odoo in editable mode
-    if install_odoo:
-        typer.secho("\nInstalling Odoo in editable mode...")
+        venv_command = ["uv", "venv", str(venv_dir)]
+        if python_version:
+            venv_command.extend(["--python", python_version])
+        # Always run: pip resolution needs a real venv target
         _run_command(
-            ["uv", "pip", "install", "-e", f"file://{odoo_dir}#egg=odoo"],
-            venv_dir=venv_dir,
+            venv_command,
             verbose=verbose,
-            dry_run=dry_run,
+            dry_run=False,
         )
         typer.secho(
-            "  ✔  Installed Odoo in editable mode",
+            f"  ✔ Virtual environment created at {typer.style(str(venv_dir), fg=typer.colors.YELLOW)}",
         )
 
-        # Run extra commands for 'after_odoo_install' stage
+        # Run extra commands for 'after_venv' stage
         _run_commands_for_stage(
-            "after_odoo_install",
+            "after_venv",
             extra_commands,
             odoo_version,
             python_version,
@@ -521,7 +397,166 @@ def create_odoo_venv(  # noqa: C901
             dry_run,
         )
 
-    typer.secho("\n✅ Environment setup complete!", fg=typer.colors.GREEN)
-    typer.secho(
-        f"Activate it with: source {typer.style(str(venv_dir / 'bin' / 'activate'), fg=typer.colors.YELLOW)}",
-    )
+        # 3. Install requirements
+        all_req_files = []
+        if install_odoo_requirements:
+            odoo_reqs_file = odoo_dir / "requirements.txt"
+            if odoo_reqs_file.exists():
+                all_req_files.append(odoo_reqs_file)
+
+        if install_addons_dirs_requirements and addons_paths:
+            for path in addons_paths:
+                addons_req_file = Path(path) / "requirements.txt"
+                if addons_req_file.exists():
+                    all_req_files.append(addons_req_file)
+
+        ignore_req_lines = []
+        if ignore_from_odoo_requirements:
+            ignore_req_lines.extend([pkg.strip() for pkg in ignore_from_odoo_requirements.split(",") if pkg.strip()])
+        if ignore_from_addons_dirs_requirements:
+            ignore_req_lines.extend([
+                pkg.strip() for pkg in ignore_from_addons_dirs_requirements.split(",") if pkg.strip()
+            ])
+        if ignore_from_addons_manifests_requirements:
+            ignore_req_lines.extend([
+                pkg.strip() for pkg in ignore_from_addons_manifests_requirements.split(",") if pkg.strip()
+            ])
+
+        ignored_req_map = defaultdict(list)
+        for req_line in ignore_req_lines:
+            try:
+                req = Requirement(req_line)
+                if not req.marker or req.marker.evaluate(target_env_for_markers):
+                    new_req_str = f"{req.name}{req.specifier}"
+                    new_req = Requirement(new_req_str)
+                    ignored_req_map[new_req.name.lower()].append(new_req)
+            except InvalidRequirement:
+                typer.secho(
+                    f"  ⚠ Invalid requirement in ignore list: {req_line}",
+                    fg=typer.colors.RED,
+                )
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt", encoding="utf-8") as tmp:
+            tmp_path = tmp.name
+            req_count = 0
+
+            if all_req_files:
+                for req_file in all_req_files:
+                    with open(req_file, encoding="utf-8") as f:
+                        for line in f:
+                            if _process_requirement_line(line, ignored_req_map, tmp, target_env_for_markers):
+                                req_count += 1
+
+            if extra_requirements:
+                for req_line in extra_requirements:
+                    if _process_requirement_line(req_line, ignored_req_map, tmp, target_env_for_markers):
+                        req_count += 1
+
+            if extra_requirements_file:
+                extra_req_file = Path(extra_requirements_file).expanduser().resolve()
+                if extra_req_file.exists():
+                    with open(extra_req_file, encoding="utf-8") as f:
+                        for line in f:
+                            if _process_requirement_line(line, ignored_req_map, tmp, target_env_for_markers):
+                                req_count += 1
+
+            if install_addons_manifests_requirements and addons_paths:
+                manifest_files = _find_manifest_files(addons_paths)
+                for manifest_file in manifest_files:
+                    with open(manifest_file, encoding="utf-8") as f:
+                        content = f.read()
+                        manifest = ast.literal_eval(content)
+                        if "external_dependencies" in manifest and isinstance(
+                            manifest["external_dependencies"].get("python"), list
+                        ):
+                            for dep in manifest["external_dependencies"]["python"]:
+                                if _process_requirement_line(
+                                    dep,
+                                    ignored_req_map,
+                                    tmp,
+                                    target_env_for_markers,
+                                ):
+                                    req_count += 1
+
+        if req_count > 0:
+            install_args = [
+                "uv",
+                "pip",
+                "install",
+                "-r",
+                tmp_path,
+            ]
+            typer.secho("\nInstalling required packages...")
+            if verbose:
+                if ignored_req_map:
+                    typer.secho(
+                        "   Packages to ignore:",
+                        fg=typer.colors.BLUE,
+                    )
+                    for pkg_name in sorted(ignored_req_map.keys()):
+                        for req in ignored_req_map[pkg_name]:
+                            typer.secho(f"      - {req}", fg=typer.colors.YELLOW)
+                with open(tmp_path, encoding="utf-8") as f:
+                    requirements = f.read().splitlines()
+                    typer.secho("   Packages to install:", fg=typer.colors.BLUE)
+                    for req in requirements:
+                        typer.secho(f"      - {req}", fg=typer.colors.CYAN)
+
+            _run_command(install_args, venv_dir=venv_dir, verbose=False, dry_run=dry_run)
+            typer.secho(f"  ✔  {typer.style(req_count, fg=typer.colors.YELLOW)} Packages installed successfully")
+
+        os.remove(tmp_path)
+
+        # Installation order: venv → requirements → odoo (editable)
+        # Odoo installed AFTER requirements so that extra_commands at
+        # 'after_requirements' stage can set up build dependencies
+        # (e.g., setuptools<58 for vatnumber on Odoo <= 13.0)
+        _run_commands_for_stage(
+            "after_requirements",
+            extra_commands,
+            odoo_version,
+            python_version,
+            venv_dir,
+            verbose,
+            dry_run,
+        )
+
+        # 4. Install Odoo in editable mode
+        if install_odoo:
+            typer.secho("\nInstalling Odoo in editable mode...")
+            _run_command(
+                ["uv", "pip", "install", "-e", f"file://{odoo_dir}#egg=odoo"],
+                venv_dir=venv_dir,
+                verbose=verbose,
+                dry_run=dry_run,
+            )
+            typer.secho(
+                "  ✔  Installed Odoo in editable mode",
+            )
+
+            # Run extra commands for 'after_odoo_install' stage
+            _run_commands_for_stage(
+                "after_odoo_install",
+                extra_commands,
+                odoo_version,
+                python_version,
+                venv_dir,
+                verbose,
+                dry_run,
+            )
+
+        if dry_run:
+            typer.secho(
+                "\n(dry-run) Dependency resolution successful. No packages were installed.",
+                fg=typer.colors.GREEN,
+            )
+        else:
+            typer.secho("\n✅ Environment setup complete!", fg=typer.colors.GREEN)
+            typer.secho(
+                f"Activate it with: source {typer.style(str(venv_dir / 'bin' / 'activate'), fg=typer.colors.YELLOW)}",
+            )
+    finally:
+        # Always clean up the temporary venv created during dry-run
+        if dry_run and venv_dir.exists():
+            shutil.rmtree(venv_dir)
+            typer.secho("(dry-run) Cleaned up temporary venv", fg=typer.colors.BLUE)

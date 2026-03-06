@@ -214,7 +214,10 @@ def create(
     ] = False,
     dry_run: Annotated[
         bool,
-        typer.Option(),
+        typer.Option(
+            help="Validate dependency resolution without installing. "
+            "Creates a temporary venv, runs uv pip install --dry-run, then cleans up.",
+        ),
     ] = False,
     preset: Annotated[
         str | None,
