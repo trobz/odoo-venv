@@ -240,4 +240,5 @@ jobs:
             --venv-dir ~/code/venvs/${{ matrix.odoo_version }} \
             --python-version ${{ matrix.python_version }} \
             --create-launcher \
-            --addons-path=$addons_path
+            --addons-path=$addons_path \
+            --skip-on-failure
