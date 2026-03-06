@@ -46,6 +46,7 @@ _MANIFEST_IMPORT_TO_PIP: dict[str, str] = {
     "git": "GitPython",
     "accept_language": "parse-accept-language",
     "dns": "dnspython",
+    "graphql_server": "graphql-server-core",
 }
 
 _COMPARISON_OPS = {
