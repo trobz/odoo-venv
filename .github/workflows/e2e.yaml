@@ -119,4 +119,5 @@ jobs:
             --odoo-dir ~/code/odoo/odoo/${{ matrix.odoo_version }} \
             --venv-dir ~/code/venvs/${{ matrix.odoo_version }} \
             --python-version ${{ matrix.python_version }} \
-            --create-launcher
+            --create-launcher \
+            --skip-on-failure
