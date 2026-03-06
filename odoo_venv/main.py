@@ -238,7 +238,7 @@ def _run_command(
 # Format: { normalised_pkg_name: when_marker }  (empty when_marker = always apply)
 _NO_BUILD_ISOLATION_PACKAGES: dict[str, str] = {
     "vatnumber": "odoo_version <= '13.0'",
-    "suds-jurko": "odoo_version <= '12.0'",
+    "suds-jurko": "odoo_version <= '13.0'",
     "rfc6266-parser": "",
 }
 
