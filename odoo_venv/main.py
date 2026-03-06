@@ -41,6 +41,8 @@ _MANIFEST_IMPORT_TO_PIP: dict[str, str] = {
     "Asterisk": "py-Asterisk",
     "facturx": "factur-x",
     "MySQLdb": "MySQL-python",
+    "u2flib_server": "python-u2flib-server",
+    "u2flib-server": "python-u2flib-server",
 }
 
 _COMPARISON_OPS = {
