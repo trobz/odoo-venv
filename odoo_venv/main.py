@@ -264,6 +264,9 @@ def _collect_mentioned_packages(req_lines: list[str], target_env: dict[str, str]
 _KNOWN_TRANSITIVE_CONFLICTS: dict[str, list[str]] = {
     # matplotlib>=3.4 depends on pyparsing>=2.2.1, which conflicts with Odoo's older pin
     "matplotlib": ["pyparsing"],
+    # google-books-api-wrapper depends on requests>=2.28 which depends on idna>=2.5,
+    # conflicting with Odoo's older idna pin
+    "google-books-api-wrapper": ["idna"],
 }
 
 
