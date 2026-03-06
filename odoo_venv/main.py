@@ -17,6 +17,38 @@ PKG_NAME_PATTERN = re.compile(r"(?P<lib_name>[a-z0-9A-Z\-\_\.]+)((>|<|=)=)?(.*)"
 
 VALID_STAGES = {"after_venv", "after_requirements", "after_odoo_install"}
 
+# In Odoo <= 12.0, external_dependencies.python lists importable module names, not pip package
+# names (the module loader used importlib.import_module to validate them).  This mapping translates
+# the most common mismatches so we can install the correct pip package.
+# See: https://github.com/odoo/odoo/blob/12.0/odoo/addons/base/models/ir_module.py#L316-L331
+#
+# Starting from 13.0 modules should list pip package names, but many (especially OCA ports)
+# still use import names in practice, so the mapping is applied unconditionally.
+_MANIFEST_IMPORT_TO_PIP: dict[str, str] = {
+    "stdnum": "python-stdnum",
+    "crypto": "pycryptodome",
+    "openssl": "pyOpenSSL",
+    "dateutil": "python-dateutil",
+    "yaml": "pyyaml",
+    "usb": "pyusb",
+    "serial": "pyserial",
+    "pil": "Pillow",
+    "magic": "python-magic",
+    "bs4": "beautifulsoup4",
+    "sklearn": "scikit-learn",
+    "ldap": "python-ldap",
+    "voicent": "Voicent-Python",
+    "asterisk": "py-Asterisk",
+    "facturx": "factur-x",
+    "mysqldb": "MySQL-python",
+    "u2flib_server": "python-u2flib-server",
+    "u2flib-server": "python-u2flib-server",
+    "git": "GitPython",
+    "accept_language": "parse-accept-language",
+    "dns": "dnspython",
+    "graphql_server": "graphql-server-core",
+}
+
 _COMPARISON_OPS = {
     "<": operator.lt,
     "<=": operator.le,
@@ -180,6 +212,28 @@ def _run_commands_for_stage(
             _run_command(command, venv_dir=venv_dir, verbose=verbose, dry_run=dry_run, extra_env=extra_env)
         except SystemExit:
             _handle_cmd_error(command, stage, when_marker, extra_env)
+
+
+def _resolve_manifest_dep(dep: str) -> str:
+    """Translate a manifest python dependency to its pip package name.
+
+    In Odoo <= 12.0 external_dependencies.python entries are importable module names
+    (e.g. ``stdnum``) because the loader validated them via importlib.import_module.
+    See: https://github.com/odoo/odoo/blob/12.0/odoo/addons/base/models/ir_module.py#L316-L331
+
+    Starting from 13.0 they should be pip package names, but many modules (especially
+    OCA ports) still use import names in practice, so the mapping is applied unconditionally.
+
+    >>> _resolve_manifest_dep("stdnum")
+    'python-stdnum'
+    >>> _resolve_manifest_dep("Crypto")
+    'pycryptodome'
+    >>> _resolve_manifest_dep("dateutil")
+    'python-dateutil'
+    >>> _resolve_manifest_dep("unknown_pkg")
+    'unknown_pkg'
+    """
+    return _MANIFEST_IMPORT_TO_PIP.get(dep.lower(), dep)
 
 
 def _keep_if_marker_matches(req_line: str, env: dict | None = None) -> str | None:
@@ -447,7 +501,7 @@ def create_odoo_venv(  # noqa: C901
                     ):
                         for dep in manifest["external_dependencies"]["python"]:
                             if _process_requirement_line(
-                                dep,
+                                _resolve_manifest_dep(dep),
                                 ignored_req_map,
                                 tmp,
                                 target_env_for_markers,
