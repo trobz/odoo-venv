@@ -1,3 +1,5 @@
+import subprocess
+import sys
 from dataclasses import asdict
 from importlib.metadata import version
 from pathlib import Path
@@ -146,6 +148,64 @@ def _resolve_odoo_dir_and_version(
     return odoo_dir_path, resolved_version
 
 
+_GITHUB_REPO = "trobz/odoo-venv"
+
+
+def _create_github_issue(command: str, output: str) -> None:
+    """Open a bug report on GitHub via ``gh issue create``."""
+    title = f"Error running: `{command}`"
+    body = (
+        "## Command\n\n"
+        f"```\n{command}\n```\n\n"
+        "## Output\n\n"
+        f"```\n{output}\n```\n\n"
+        "*Reported automatically by `--report-errors`.*"
+    )
+    try:
+        result = subprocess.run(  # noqa: S603
+            ["gh", "issue", "create", "--repo", _GITHUB_REPO, "--title", title, "--body", body],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        url = result.stdout.strip()
+        typer.secho(f"Issue created: {url}", fg=typer.colors.GREEN)
+    except FileNotFoundError:
+        typer.secho("warning: gh CLI not found — could not create GitHub issue.", fg=typer.colors.YELLOW)
+    except subprocess.CalledProcessError as exc:
+        typer.secho(f"warning: could not create GitHub issue:\n{exc.stderr}", fg=typer.colors.YELLOW)
+
+
+def _run_with_error_reporting(argv: list[str]) -> None:
+    """Re-run *argv* without ``--report-errors``, tee all output, and file a GitHub issue on failure.
+
+    stdout and stderr from the child process are merged so that the full
+    terminal output (including uv subprocess output) is captured in one stream
+    and printed to the terminal in real time.
+    """
+    cmd = [a for a in argv if a != "--report-errors"]
+    captured: list[str] = []
+
+    proc = subprocess.Popen(  # noqa: S603
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    assert proc.stdout is not None  # noqa: S101
+    for line in proc.stdout:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+        captured.append(line)
+    proc.wait()
+
+    if proc.returncode != 0:
+        full_command = " ".join(cmd)
+        _create_github_issue(full_command, "".join(captured))
+
+    raise typer.Exit(proc.returncode)
+
+
 @app.command()
 def create(
     ctx: typer.Context,
@@ -242,8 +302,19 @@ def create(
             "via odoo-addons-path and applies --preset=project.",
         ),
     ] = None,
+    report_errors: Annotated[
+        bool,
+        typer.Option(
+            "--report-errors",
+            help="On failure, automatically open a GitHub issue with the full command and output.",
+        ),
+    ] = False,
 ):
     """Create virtual environment to run Odoo"""
+    if report_errors:
+        _run_with_error_reporting(sys.argv)
+        return
+
     # Auto-detect layout from --project-dir if provided
     project_dir_value = ctx.obj.get("project_dir") if ctx.obj else None
     detected_odoo_dir, detected_version, detected_addons_path = (
