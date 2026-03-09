@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.5.0 (2026-03-09)
+
+### Features
+
+- Add --report-errors flag to create command
+  ([`40a5303`](https://github.com/trobz/odoo-venv/commit/40a5303988d280fc176e9aa5ac11f46ba00b4eb2))
+
+
 ## v1.4.0 (2026-03-03)
 
 ### Bug Fixes
