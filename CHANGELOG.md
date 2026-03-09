@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.0 (2026-03-09)
+
+### Features
+
+- Add compare command to diff package versions across venvs
+  ([`79c793d`](https://github.com/trobz/odoo-venv/commit/79c793da980daa86af45cd4d5bf6cfce5c8c01f4))
+
+
 ## v1.5.0 (2026-03-09)
 
 ### Features
