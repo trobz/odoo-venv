@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v1.6.2 (2026-03-10)
+
+### Bug Fixes
+
+- **cli**: Fix --preset being ignored when --project-dir precedes it in argv
+  ([`b235d56`](https://github.com/trobz/odoo-venv/commit/b235d566b9af0b74089ebd1664606808c0243ece))
+
+- **cli**: Make --extra-requirement additive to preset value
+  ([`ffa423a`](https://github.com/trobz/odoo-venv/commit/ffa423ac3bae4cbd25de412510a454d954f2abc6))
+
+
 ## v1.6.1 (2026-03-10)
 
 ### Bug Fixes
