@@ -38,6 +38,36 @@ ODOO_PYTHON_VERSIONS = {
 }
 
 
+def _apply_preset(ctx: typer.Context, preset_name: str, all_presets: dict, *, silent: bool = False):
+    """Apply a preset's options to the Typer context.
+
+    Loads preset values into ctx.default_map and stores extra_commands/extra_requirement
+    in ctx.obj for later merging (so CLI flags remain additive rather than overriding).
+
+    Args:
+        ctx: Typer context to update.
+        preset_name: Key in all_presets to apply.
+        all_presets: Dict of loaded presets (from load_presets()).
+        silent: When True, suppress the "Applying preset" message.
+    """
+    preset_vals = all_presets[preset_name]
+    preset_options = asdict(preset_vals)
+
+    ctx.default_map = ctx.default_map or {}
+    ctx.default_map.update(preset_options)
+    # Store extra_commands and extra_requirement on ctx.obj so they can be merged
+    # with any explicit CLI values rather than being overridden by them.
+    # Remove them from default_map so Click doesn't double-apply them.
+    ctx.default_map.pop("extra_commands", None)
+    ctx.default_map.pop("extra_requirement", None)
+    obj = ctx.ensure_object(dict)
+    obj["extra_commands"] = preset_options.get("extra_commands")
+    obj["preset_extra_requirement"] = preset_options.get("extra_requirement")
+
+    if not silent and (descr := preset_options.get("description")):
+        typer.secho(f"Applying preset '{preset_name}': {descr}", fg=typer.colors.GREEN)
+
+
 def preset_callback(ctx: typer.Context, param: typer.CallbackParam, value: str):
     if not value:
         return None
@@ -46,15 +76,8 @@ def preset_callback(ctx: typer.Context, param: typer.CallbackParam, value: str):
     if value not in all_presets:
         raise PresetNotFoundError(value)
 
-    preset_vals = all_presets[value]
-    preset_options = asdict(preset_vals)
-
-    ctx.default_map = ctx.default_map or {}
-    ctx.default_map.update(preset_options)
-    # Store extra_commands on ctx.obj (not a CLI option, so default_map won't forward it)
-    ctx.ensure_object(dict)["extra_commands"] = preset_options.get("extra_commands")
-    if descr := preset_options["description"]:
-        typer.secho(f"Applying preset '{value}': {descr}", fg=typer.colors.GREEN)
+    _apply_preset(ctx, value, all_presets)
+    ctx.ensure_object(dict)["explicit_preset"] = True
     return value
 
 
@@ -62,13 +85,19 @@ def project_dir_callback(ctx: typer.Context, param: typer.CallbackParam, value: 
     if not value:
         return None
 
-    # Auto-apply "project" preset if no preset was explicitly set.
-    # --preset is also is_eager and declared before --project-dir, so if the user
-    # passed --preset explicitly, ctx.default_map is already populated here.
-    if not ctx.default_map:
-        preset_callback(ctx, param, "project")
+    # Auto-apply "project" preset silently if no explicit --preset was given.
+    # Both --preset and --project-dir are is_eager, so their callbacks fire in CLI argument
+    # order (not declaration order). We check explicit_preset (set by preset_callback when
+    # --preset appears before --project-dir in argv) to skip the auto-apply in that case.
+    # When --project-dir appears first, we apply "project" defaults silently here; if the
+    # user also passed --preset, that callback fires next and will overwrite with its message.
+    obj = ctx.ensure_object(dict)
+    if not obj.get("explicit_preset"):
+        all_presets = load_presets()
+        if "project" in all_presets:
+            _apply_preset(ctx, "project", all_presets, silent=True)
 
-    ctx.ensure_object(dict)["project_dir"] = value
+    obj["project_dir"] = value
     return value
 
 
@@ -333,12 +362,17 @@ def create(
 
     venv_dir_path = Path(venv_dir).expanduser().resolve()
 
+    # Merge preset's extra_requirement (stored in ctx.obj) with any explicit CLI value.
+    # The CLI value is additive: --extra-requirement="" means "nothing extra beyond the preset".
     extra_requirements_list = []
+    preset_extra_req = (ctx.obj or {}).get("preset_extra_requirement")
+    if preset_extra_req:
+        extra_requirements_list.extend(split_escaped(preset_extra_req))
     if extra_requirement:
         if isinstance(extra_requirement, str):
-            extra_requirements_list = split_escaped(extra_requirement)
+            extra_requirements_list.extend(split_escaped(extra_requirement))
         else:
-            extra_requirements_list = list(extra_requirement)
+            extra_requirements_list.extend(extra_requirement)
 
     if not addons_path and detected_addons_path:
         addons_path = detected_addons_path
