@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v1.10.0 (2026-03-10)
+
+### Bug Fixes
+
+- Normalize pkg name (hyphens/underscores) in no-build-isolation detection
+  ([`290c59d`](https://github.com/trobz/odoo-venv/commit/290c59d53203b4070baba89057519b27933db8f9))
+
+- Widen suds-jurko no-build-isolation condition to odoo_version <= '13.0'
+  ([`0ce7280`](https://github.com/trobz/odoo-venv/commit/0ce7280b3db135a48f07df4a56ec97b1b5442e87))
+
+### Features
+
+- Auto-handle packages requiring --no-build-isolation
+  ([`287d4b2`](https://github.com/trobz/odoo-venv/commit/287d4b22f964a730b7365d18938f3d363044ca62))
+
+- Install hidden build deps before --no-build-isolation packages
+  ([`65ad956`](https://github.com/trobz/odoo-venv/commit/65ad9567d48749dc5ab5f9be90fc871f0939aa5b))
+
+
 ## v1.9.0 (2026-03-10)
 
 ### Bug Fixes

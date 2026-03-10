@@ -125,7 +125,7 @@ wheels = [
 
 [[package]]
 name = "odoo-venv"
-version = "1.9.0"
+version = "1.10.0"
 source = { editable = "." }
 dependencies = [
     { name = "odoo-addons-path" },
