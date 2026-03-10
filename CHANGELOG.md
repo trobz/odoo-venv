@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v1.8.0 (2026-03-10)
+
+### Bug Fixes
+
+- Detect 'not found in registry' uv resolution failure
+  ([`d21e3c9`](https://github.com/trobz/odoo-venv/commit/d21e3c9d0b8222dd21fa59bf4c0b21b5e7ac1d64))
+
+- Output full uv error before skip-on-failure warning
+  ([`dea1977`](https://github.com/trobz/odoo-venv/commit/dea1977cccf058c4af87967dac5e71f29698ef72))
+
+- Prevent infinite retry loop when same package fails repeatedly
+  ([`22305cb`](https://github.com/trobz/odoo-venv/commit/22305cb44be027aa066e0fd3b66ee6e0058a8a41))
+
+### Features
+
+- Add --skip-on-failure flag to odoo-venv create
+  ([`edd1843`](https://github.com/trobz/odoo-venv/commit/edd18434494416746ea41db1a195d9972787bb21))
+
+
 ## v1.7.0 (2026-03-10)
 
 ### Features
