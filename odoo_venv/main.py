@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 from collections import defaultdict
+from collections.abc import Callable
 from pathlib import Path
 
 import typer
@@ -297,6 +298,46 @@ _KNOWN_TRANSITIVE_CONFLICTS: dict[str, list[str]] = {
     # conflicting with Odoo's older idna pin
     "google-books-api-wrapper": ["idna"],
 }
+
+
+def _scan_user_sources(
+    collector_fn: Callable[[list[str], dict[str, str]], set[str]],
+    extra_requirements: list[str] | None,
+    extra_requirements_file: str | None,
+    install_addons_dirs_requirements: bool,
+    addons_paths: list[str] | None,
+    manifest_files: list[Path],
+    parsed_manifests: dict[Path, dict],
+    target_env: dict[str, str],
+) -> set[str]:
+    """Scan all user requirement sources using the given collector function.
+
+    Iterates over extra_requirements, extra_requirements_file, addons dirs,
+    and manifest files — collecting package names via *collector_fn*.
+    """
+    result: set[str] = set()
+
+    if extra_requirements:
+        result |= collector_fn(extra_requirements, target_env)
+
+    if extra_requirements_file:
+        path = Path(extra_requirements_file).expanduser().resolve()
+        if path.exists():
+            result |= collector_fn(path.read_text(encoding="utf-8").splitlines(), target_env)
+
+    if install_addons_dirs_requirements and addons_paths:
+        for p in addons_paths:
+            req_file = Path(p) / "requirements.txt"
+            if req_file.exists():
+                result |= collector_fn(req_file.read_text(encoding="utf-8").splitlines(), target_env)
+
+    # manifest_files is already empty when install_addons_manifests_requirements is False
+    for mf in manifest_files:
+        ext_deps = parsed_manifests[mf].get("external_dependencies", {})
+        if isinstance(ext_deps.get("python"), list):
+            result |= collector_fn(ext_deps["python"], target_env)
+
+    return result
 
 
 def _keep_if_marker_matches(req_line: str, env: dict | None = None) -> str | None:
@@ -665,6 +706,9 @@ def create_odoo_venv(  # noqa: C901
     if install_addons_manifests_requirements and addons_paths:
         manifest_files = _find_manifest_files(addons_paths)
 
+    # Cache parsed manifests to avoid re-reading/parsing the same files multiple times.
+    parsed_manifests: dict[Path, dict] = {mf: ast.literal_eval(mf.read_text(encoding="utf-8")) for mf in manifest_files}
+
     # Collect the set of packages actually present in the base requirement files
     # (Odoo's requirements.txt and addons dirs).  Auto-ignore logic is restricted to
     # this set so we never silently drop a package that Odoo doesn't pin.
@@ -674,31 +718,20 @@ def create_odoo_venv(  # noqa: C901
             req_file.read_text(encoding="utf-8").splitlines(), target_env_for_markers
         )
 
+    scan_args = (
+        extra_requirements,
+        extra_requirements_file,
+        install_addons_dirs_requirements,
+        addons_paths,
+        manifest_files,
+        parsed_manifests,
+        target_env_for_markers,
+    )
+
     # Pre-scan user sources for packages with version specifiers.
     # When a user source pins/constrains a package that Odoo also pins, Odoo's stricter
     # pin is skipped automatically so the user's version wins without an explicit ignore entry.
-    user_constrained: set[str] = set()
-    if extra_requirements:
-        user_constrained |= _collect_constrained_packages(extra_requirements, target_env_for_markers)
-    if extra_requirements_file:
-        _extra_req_path = Path(extra_requirements_file).expanduser().resolve()
-        if _extra_req_path.exists():
-            user_constrained |= _collect_constrained_packages(
-                _extra_req_path.read_text(encoding="utf-8").splitlines(), target_env_for_markers
-            )
-    if install_addons_dirs_requirements and addons_paths:
-        for path in addons_paths:
-            _addons_req = Path(path) / "requirements.txt"
-            if _addons_req.exists():
-                user_constrained |= _collect_constrained_packages(
-                    _addons_req.read_text(encoding="utf-8").splitlines(), target_env_for_markers
-                )
-    for manifest_file in manifest_files:
-        manifest = ast.literal_eval(manifest_file.read_text(encoding="utf-8"))
-        if "external_dependencies" in manifest and isinstance(manifest["external_dependencies"].get("python"), list):
-            user_constrained |= _collect_constrained_packages(
-                manifest["external_dependencies"]["python"], target_env_for_markers
-            )
+    user_constrained = _scan_user_sources(_collect_constrained_packages, *scan_args)
     for pkg_name in user_constrained & base_pinned:
         if not any(not r.specifier for r in ignored_req_map[pkg_name]):
             ignored_req_map[pkg_name].append(Requirement(pkg_name))
@@ -711,28 +744,7 @@ def create_odoo_venv(  # noqa: C901
     # Collect all mentioned packages (regardless of specifier) to resolve known transitive
     # conflicts — e.g. matplotlib (even without a version pin) implies pyparsing must not
     # be constrained by Odoo's pin, because matplotlib depends on a higher version.
-    user_mentioned: set[str] = set()
-    if extra_requirements:
-        user_mentioned |= _collect_mentioned_packages(extra_requirements, target_env_for_markers)
-    if extra_requirements_file:
-        _extra_req_path = Path(extra_requirements_file).expanduser().resolve()
-        if _extra_req_path.exists():
-            user_mentioned |= _collect_mentioned_packages(
-                _extra_req_path.read_text(encoding="utf-8").splitlines(), target_env_for_markers
-            )
-    if install_addons_dirs_requirements and addons_paths:
-        for path in addons_paths:
-            _addons_req = Path(path) / "requirements.txt"
-            if _addons_req.exists():
-                user_mentioned |= _collect_mentioned_packages(
-                    _addons_req.read_text(encoding="utf-8").splitlines(), target_env_for_markers
-                )
-    for manifest_file in manifest_files:
-        manifest = ast.literal_eval(manifest_file.read_text(encoding="utf-8"))
-        if "external_dependencies" in manifest and isinstance(manifest["external_dependencies"].get("python"), list):
-            user_mentioned |= _collect_mentioned_packages(
-                manifest["external_dependencies"]["python"], target_env_for_markers
-            )
+    user_mentioned = _scan_user_sources(_collect_mentioned_packages, *scan_args)
     for pkg_name in user_mentioned:
         for transitive in _KNOWN_TRANSITIVE_CONFLICTS.get(pkg_name, []):
             if transitive not in base_pinned:
@@ -771,20 +783,17 @@ def create_odoo_venv(  # noqa: C901
 
         if manifest_files:
             for manifest_file in manifest_files:
-                with open(manifest_file, encoding="utf-8") as f:
-                    content = f.read()
-                    manifest = ast.literal_eval(content)
-                    if "external_dependencies" in manifest and isinstance(
-                        manifest["external_dependencies"].get("python"), list
-                    ):
-                        for dep in manifest["external_dependencies"]["python"]:
-                            if _process_requirement_line(
-                                _resolve_manifest_dep(dep),
-                                ignored_req_map,
-                                tmp,
-                                target_env_for_markers,
-                            ):
-                                req_count += 1
+                manifest = parsed_manifests[manifest_file]
+                ext_deps = manifest.get("external_dependencies", {})
+                if isinstance(ext_deps.get("python"), list):
+                    for dep in ext_deps["python"]:
+                        if _process_requirement_line(
+                            _resolve_manifest_dep(dep),
+                            ignored_req_map,
+                            tmp,
+                            target_env_for_markers,
+                        ):
+                            req_count += 1
 
     skipped: list[str] = []
     if req_count > 0:
