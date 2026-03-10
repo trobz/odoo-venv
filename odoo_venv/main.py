@@ -41,7 +41,7 @@ _MANIFEST_IMPORT_TO_PIP: dict[str, str] = {
     "voicent": "Voicent-Python",
     "asterisk": "py-Asterisk",
     "facturx": "factur-x",
-    "mysqldb": "MySQL-python",
+    "mysqldb": "mysqlclient",
     "u2flib_server": "python-u2flib-server",
     "u2flib-server": "python-u2flib-server",
     "git": "GitPython",
@@ -528,16 +528,13 @@ _NO_BUILD_ISOLATION_PACKAGES: dict[str, str] = {
     "vatnumber": "odoo_version <= '13.0'",
     "suds-jurko": "odoo_version <= '13.0'",
     "rfc6266-parser": "",
-    "mysql-python": "",
 }
 
 # Hidden build-time dependencies that must be pre-installed in the venv before a
 # --no-build-isolation install can succeed.  These are not declared by the package
 # itself (hence "hidden") and are not part of the regular requirements.
 # Format: { normalised_pkg_name: [build_dep, ...] }
-_NBI_BUILD_DEPS: dict[str, list[str]] = {
-    "mysql-python": ["ConfigParser"],
-}
+_NBI_BUILD_DEPS: dict[str, list[str]] = {}
 
 
 def _collect_no_build_isolation_specs(
