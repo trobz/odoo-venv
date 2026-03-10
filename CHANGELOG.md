@@ -2,6 +2,30 @@
 
 <!-- version list -->
 
+## v1.9.0 (2026-03-10)
+
+### Bug Fixes
+
+- Only auto-ignore base req pins that actually exist in Odoo's requirements
+  ([`34a69bf`](https://github.com/trobz/odoo-venv/commit/34a69bf03505fa664080af00f694d6d5123777de))
+
+### Features
+
+- Add google-books-api-wrapper -> idna transitive conflict
+  ([`8730f85`](https://github.com/trobz/odoo-venv/commit/8730f85106e125640712f121d002e444d0fe84bb))
+
+- Auto-ignore Odoo pins for known transitive conflicts
+  ([`e94e40d`](https://github.com/trobz/odoo-venv/commit/e94e40d52e53aecc16a26a6e9951bd74e98c66aa))
+
+- Auto-ignore Odoo's pinned requirements when user sources override them
+  ([`5ac8c1f`](https://github.com/trobz/odoo-venv/commit/5ac8c1f7986258594c307159d3f6646a0fbd346a))
+
+### Refactoring
+
+- Extract _scan_user_sources to reduce duplication
+  ([`2ce563b`](https://github.com/trobz/odoo-venv/commit/2ce563b12b0a992bd20b34880641231ae1e99341))
+
+
 ## v1.8.0 (2026-03-10)
 
 ### Bug Fixes
