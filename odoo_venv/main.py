@@ -343,8 +343,12 @@ def _install_requirements_with_retry(
         install_args = ["uv", "pip", "install", "-r", tmp_path]
         try:
             _run_command(
-                install_args, venv_dir=venv_dir, verbose=False, dry_run=dry_run,
-                raise_on_error=True, extra_env={"UV_PRERELEASE": "allow"},
+                install_args,
+                venv_dir=venv_dir,
+                verbose=False,
+                dry_run=dry_run,
+                raise_on_error=True,
+                extra_env={"UV_PRERELEASE": "allow"},
             )
         except subprocess.CalledProcessError as exc:
             if attempt == max_retries:
