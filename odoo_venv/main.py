@@ -527,6 +527,9 @@ def _install_requirements_with_retry(
 _NO_BUILD_ISOLATION_PACKAGES: dict[str, str] = {
     "vatnumber": "odoo_version <= '13.0'",
     "suds-jurko": "odoo_version <= '13.0'",
+    # magento depends on suds-jurko, so the transitive build of suds-jurko also
+    # needs the legacy setuptools already present in the venv.
+    "magento": "odoo_version <= '13.0'",
     "rfc6266-parser": "",
 }
 
@@ -553,6 +556,10 @@ def _collect_no_build_isolation_specs(
     >>> _collect_no_build_isolation_specs(["rfc6266_parser==0.0.6", "requests"], {}, "17.0", None)
     {'rfc6266-parser': 'rfc6266_parser==0.0.6'}
     >>> _collect_no_build_isolation_specs(["vatnumber", "requests"], {}, "14.0", None)
+    {}
+    >>> _collect_no_build_isolation_specs(["magento==3.1", "requests"], {}, "12.0", None)
+    {'magento': 'magento==3.1'}
+    >>> _collect_no_build_isolation_specs(["magento==3.1", "requests"], {}, "14.0", None)
     {}
     >>> _collect_no_build_isolation_specs(["vatnumber==1.2", "requests"], {}, "13.0", None)
     {'vatnumber': 'vatnumber==1.2'}
