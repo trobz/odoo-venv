@@ -2,6 +2,47 @@
 
 <!-- version list -->
 
+## v1.7.0 (2026-03-10)
+
+### Features
+
+- Add accept_language -> parse-accept-language; remove redundant u2flib-server hyphen key
+  ([`8ab44c1`](https://github.com/trobz/odoo-venv/commit/8ab44c121b8dd28b40d8b98245060c55c2ba2f92))
+
+- Add Asterisk -> py-Asterisk to import-to-pip mapping
+  ([`566b112`](https://github.com/trobz/odoo-venv/commit/566b112d559f168cc8a2e77df69fe96f62a4fb84))
+
+- Add dns -> dnspython to import-to-pip mapping
+  ([`bfda065`](https://github.com/trobz/odoo-venv/commit/bfda065959e88efb9ffb8afdba1b3df3cd861e6e))
+
+- Add facturx -> factur-x to import-to-pip mapping
+  ([`99f90da`](https://github.com/trobz/odoo-venv/commit/99f90dab3ec6ae89e1a1f2edc1b1647c5e6d5d89))
+
+- Add git -> GitPython mapping; lowercase all import-to-pip keys
+  ([`4f97b19`](https://github.com/trobz/odoo-venv/commit/4f97b1960ca5c9c4fa15bb4b149900acb73f9878))
+
+- Add graphql_server -> graphql-server-core to import-to-pip mapping
+  ([`d5ee8ae`](https://github.com/trobz/odoo-venv/commit/d5ee8aefe3fc040acef1c176ec7a2e65ac9e23a6))
+
+- Add MySQLdb -> MySQL-python to import-to-pip mapping
+  ([`54168f3`](https://github.com/trobz/odoo-venv/commit/54168f3682ce88f014d9517f42b6ea7ab0339b99))
+
+- Add u2flib_server / u2flib-server -> python-u2flib-server to import-to-pip mapping
+  ([`823c8ef`](https://github.com/trobz/odoo-venv/commit/823c8ef5b1400ab9c420f7b1bcff32f4ecaab5f1))
+
+- Add voicent -> Voicent-Python to import-to-pip mapping
+  ([`fb04a6e`](https://github.com/trobz/odoo-venv/commit/fb04a6e5d5b0aaeda9b0756f7010a9b2b9a45c32))
+
+- Re-add u2flib-server -> python-u2flib-server to import-to-pip mapping
+  ([`973fa66`](https://github.com/trobz/odoo-venv/commit/973fa66a6e59d432735e0f59ffeecd904c312175))
+
+- Set UV_PRERELEASE=allow on requirements install
+  ([`6ecd77d`](https://github.com/trobz/odoo-venv/commit/6ecd77dbc8a7ff0706d7057909bae104b633d53a))
+
+- Translate manifest python dep names to pip package names
+  ([`fd85b29`](https://github.com/trobz/odoo-venv/commit/fd85b29b036c6b1f91a6fd95fe1b658809c83065))
+
+
 ## v1.6.2 (2026-03-10)
 
 ### Bug Fixes
