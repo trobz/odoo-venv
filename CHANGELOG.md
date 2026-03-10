@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v1.6.1 (2026-03-10)
+
+### Bug Fixes
+
+- Don't filter extra_requirements through ignore list
+  ([`f03cae0`](https://github.com/trobz/odoo-venv/commit/f03cae0d6e7d37127d5239b514777593ee1e3407))
+
+- **presets**: Bump urllib3 pin from 1.26.5 to 1.26.14 in common preset
+  ([`0ba671a`](https://github.com/trobz/odoo-venv/commit/0ba671a5acd57525b792930bae24a088f9af897c))
+
+
 ## v1.6.0 (2026-03-09)
 
 ### Features
