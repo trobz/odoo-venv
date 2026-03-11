@@ -300,6 +300,8 @@ _KNOWN_TRANSITIVE_CONFLICTS: dict[str, list[str]] = {
     # pandas>=1.0 depends on python-dateutil>=2.7.3 and pytz>=2017.3, which conflict
     # with Odoo<=13's python-dateutil==2.5.3 and pytz==2016.7 pins.
     "pandas": ["python-dateutil", "pytz"],
+    # altair depends on pandas (transitive — not found by user-source scan)
+    "altair": ["python-dateutil", "pytz"],
 }
 
 
