@@ -477,6 +477,53 @@ def _freeze_remote_venv(host: str, remote_path: str) -> dict[str, str]:
     return pkgs
 
 
+def _parse_requirements_text(text: str) -> dict[str, str]:
+    """Parse pip-freeze-style text into a ``{normalized_name: version}`` dict."""
+    pkgs: dict[str, str] = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "==" in line:
+            name, ver = line.split("==", 1)
+            pkgs[name.lower()] = ver
+    return pkgs
+
+
+def _read_requirements_file(path: Path) -> dict[str, str]:
+    """Read a local pip-freeze-style requirements file."""
+    return _parse_requirements_text(path.read_text())
+
+
+def _read_remote_requirements_file(host: str, remote_path: str) -> dict[str, str]:
+    """Read a remote pip-freeze-style requirements file over SSH."""
+    result = subprocess.run(  # noqa: S603
+        ["ssh", host, f"cat {remote_path}"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return _parse_requirements_text(result.stdout)
+
+
+def _detect_remote_kind(host: str, remote_path: str) -> str:
+    """Return ``'venv'`` if *remote_path* is a directory, ``'file'`` if it is a regular file.
+
+    Exits with an error if the path does not exist on the remote host.
+    """
+    shell_cmd = (
+        f"if [ -d {remote_path} ]; then echo venv; elif [ -f {remote_path} ]; then echo file; else echo notfound; fi"
+    )
+    result = subprocess.run(  # noqa: S603
+        ["ssh", host, shell_cmd],  # noqa: S607
+        capture_output=True,
+        text=True,
+    )
+    kind = result.stdout.strip()
+    if kind in ("venv", "file"):
+        return kind
+    typer.secho(f"error: {host}:{remote_path} does not exist.", fg=typer.colors.RED)
+    raise typer.Exit(1)
+
+
 def _parse_venv_arg(arg: str) -> tuple[str | None, str]:
     """Parse a venv argument into ``(host, path)``.
 
@@ -546,28 +593,34 @@ def _build_compare_table(
     return table
 
 
-def _resolve_venv_args(venv_dirs: list[str]) -> tuple[list[tuple[str | None, str]], list[str]]:
+def _resolve_venv_args(venv_dirs: list[str]) -> tuple[list[tuple[str | None, str, str]], list[str]]:
     """Parse and validate venv arguments; return ``(parsed, labels)``.
 
-    *parsed* is a list of ``(host, path)`` tuples (``host`` is ``None`` for local).
+    *parsed* is a list of ``(host, path, kind)`` tuples where *host* is ``None``
+    for local entries and *kind* is ``'venv'`` or ``'file'``.
     *labels* are deduplicated display names for table columns.
     """
-    parsed: list[tuple[str | None, str]] = []
+    parsed: list[tuple[str | None, str, str]] = []
     raw_labels: list[str] = []
     for arg in venv_dirs:
         host, path = _parse_venv_arg(arg)
         if host is None:
             local = Path(path).expanduser().resolve()
-            if not local.is_dir():
-                typer.secho(f"error: {local} is not a directory.", fg=typer.colors.RED)
+            if local.is_dir():
+                kind = "venv"
+            elif local.is_file():
+                kind = "file"
+            else:
+                typer.secho(f"error: {local} is not a file or directory.", fg=typer.colors.RED)
                 raise typer.Exit(1)
-            parsed.append((None, str(local)))
+            parsed.append((None, str(local), kind))
             raw_labels.append(local.name)
         else:
-            parsed.append((host, path))
+            kind = _detect_remote_kind(host, path)
+            parsed.append((host, path, kind))
             raw_labels.append(f"{host}:{Path(path).name}")
 
-    # Deduplicate labels (append index suffix if two venvs share the same basename)
+    # Deduplicate labels (append index suffix if two entries share the same basename)
     labels: list[str] = []
     seen: dict[str, int] = {}
     for label in raw_labels:
@@ -581,16 +634,27 @@ def _resolve_venv_args(venv_dirs: list[str]) -> tuple[list[tuple[str | None, str
     return parsed, labels
 
 
-def _freeze_all(parsed: list[tuple[str | None, str]], labels: list[str]) -> dict[str, dict[str, str]]:
-    """Freeze each venv (local or remote) and return ``{label: packages}``."""
+def _collect_packages(parsed: list[tuple[str | None, str, str]], labels: list[str]) -> dict[str, dict[str, str]]:
+    """Collect packages from each venv or requirements file; return ``{label: packages}``."""
     all_packages: dict[str, dict[str, str]] = {}
-    for (host, path), label in zip(parsed, labels, strict=True):
-        typer.secho(f"Freezing {label}...", fg=typer.colors.CYAN)
-        try:
-            all_packages[label] = _freeze_venv(Path(path)) if host is None else _freeze_remote_venv(host, path)
-        except subprocess.CalledProcessError as exc:
-            typer.secho(f"error: failed to freeze {label}:\n{exc.stderr}", fg=typer.colors.RED)
-            raise typer.Exit(1) from exc
+    for (host, path, kind), label in zip(parsed, labels, strict=True):
+        if kind == "file":
+            typer.secho(f"Reading {label}...", fg=typer.colors.CYAN)
+            try:
+                all_packages[label] = (
+                    _read_requirements_file(Path(path)) if host is None else _read_remote_requirements_file(host, path)
+                )
+            except (OSError, subprocess.CalledProcessError) as exc:
+                msg = exc.strerror if isinstance(exc, OSError) else exc.stderr
+                typer.secho(f"error: failed to read {label}:\n{msg}", fg=typer.colors.RED)
+                raise typer.Exit(1) from exc
+        else:
+            typer.secho(f"Freezing {label}...", fg=typer.colors.CYAN)
+            try:
+                all_packages[label] = _freeze_venv(Path(path)) if host is None else _freeze_remote_venv(host, path)
+            except subprocess.CalledProcessError as exc:
+                typer.secho(f"error: failed to freeze {label}:\n{exc.stderr}", fg=typer.colors.RED)
+                raise typer.Exit(1) from exc
     return all_packages
 
 
@@ -598,22 +662,26 @@ def _freeze_all(parsed: list[tuple[str | None, str]], labels: list[str]) -> dict
 def compare(
     venv_dirs: Annotated[
         list[str],
-        typer.Argument(help="Virtual environment directories to compare. Use host:path for remote venvs (SSH)."),
+        typer.Argument(
+            help="Venv directories or requirements files to compare. Use host:path for remote entries (SSH)."
+        ),
     ],
     no_latest: Annotated[
         bool,
         typer.Option("--no-latest", help="Do not fetch or show the 'Latest' column from PyPI."),
     ] = False,
 ):
-    """Compare installed package versions across virtual environments.
+    """Compare installed package versions across virtual environments or requirements files.
 
-    Each argument is either a local path or a remote venv in ``host:path`` format.
-    Remote venvs are accessed via SSH (host must be reachable without a password prompt).
+    Each argument is a local path or a remote entry in ``host:path`` format (SSH).
+    Directories are treated as venvs (frozen with pip/uv); files are read as
+    pip-freeze-style requirements (``package==version`` lines).
 
     Examples::
 
         odoo-venv compare .venv ~/other-venv
         odoo-venv compare .venv staging-host:~/.venvs/odoo18
+        odoo-venv compare .venv staging-host:~/.venvs/odoo18 ~/freeze.txt
     """
     from rich.console import Console
 
@@ -622,7 +690,7 @@ def compare(
         raise typer.Exit(1)
 
     parsed, labels = _resolve_venv_args(venv_dirs)
-    all_packages = _freeze_all(parsed, labels)
+    all_packages = _collect_packages(parsed, labels)
 
     all_names = sorted({name for pkgs in all_packages.values() for name in pkgs})
 
