@@ -302,6 +302,9 @@ _KNOWN_TRANSITIVE_CONFLICTS: dict[str, list[str]] = {
     "pandas": ["python-dateutil", "pytz"],
     # altair depends on pandas (transitive — not found by user-source scan)
     "altair": ["python-dateutil", "pytz"],
+    # All klaviyo-api versions require requests>=2.26.0, which conflicts with Odoo<=13's
+    # requests==2.20.0 pin.  No compatible klaviyo-api version exists without relaxing it.
+    "klaviyo-api": ["requests"],
 }
 
 
