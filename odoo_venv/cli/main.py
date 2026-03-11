@@ -447,6 +447,53 @@ def _freeze_venv(venv_dir: Path) -> dict[str, str]:
     return pkgs
 
 
+def _freeze_remote_venv(host: str, remote_path: str) -> dict[str, str]:
+    """Run ``pip freeze`` on a remote venv over SSH.
+
+    Returns a ``{normalized_name: version}`` dict.
+    Detects uv venvs remotely; falls back to the venv's own pip.
+    """
+    check = subprocess.run(  # noqa: S603
+        ["ssh", host, f"grep -q 'uv =' {remote_path}/pyvenv.cfg 2>/dev/null"],  # noqa: S607
+        capture_output=True,
+    )
+    if check.returncode == 0:
+        freeze_cmd = f"uv pip freeze --python {remote_path}"
+    else:
+        freeze_cmd = f"{remote_path}/bin/pip freeze --all"
+
+    result = subprocess.run(  # noqa: S603
+        ["ssh", host, freeze_cmd],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    pkgs: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if "==" in line:
+            name, ver = line.split("==", 1)
+            pkgs[name.lower()] = ver
+    return pkgs
+
+
+def _parse_venv_arg(arg: str) -> tuple[str | None, str]:
+    """Parse a venv argument into ``(host, path)``.
+
+    - ``/path/to/venv``          -> ``(None, '/path/to/venv')``
+    - ``host:path``              -> ``(host, 'path')``
+    - ``host:/absolute/path``    -> ``(host, '/absolute/path')``
+
+    A colon separates host from path only when the part before it contains
+    no ``/`` (i.e. it looks like a hostname, not an absolute path).
+    """
+    if ":" in arg:
+        host, path = arg.split(":", 1)
+        if host and "/" not in host:
+            return host, path
+    return None, arg
+
+
 def _fetch_latest_pypi(package: str) -> str:
     """Return the latest version of *package* from PyPI, or ``"?"`` on failure."""
     url = f"https://pypi.org/pypi/{package}/json"
@@ -458,8 +505,8 @@ def _fetch_latest_pypi(package: str) -> str:
 
 
 def _build_compare_table(
-    resolved: list[Path],
-    all_packages: dict[Path, dict[str, str]],
+    labels: list[str],
+    all_packages: dict[str, dict[str, str]],
     all_names: list[str],
     latest: dict[str, str],
     show_latest: bool,
@@ -469,13 +516,13 @@ def _build_compare_table(
 
     table = Table(box=box.ROUNDED, show_header=True, header_style="bold cyan")
     table.add_column("Package", style="bold", no_wrap=True)
-    for d in resolved:
-        table.add_column(d.name, justify="center")
+    for label in labels:
+        table.add_column(label, justify="center")
     if show_latest:
         table.add_column("Latest", justify="center")
 
     for name in all_names:
-        versions = [all_packages[d].get(name) for d in resolved]
+        versions = [all_packages[label].get(name) for label in labels]
         has_diff = len({v for v in versions if v is not None}) > 1
 
         cells: list[str] = []
@@ -499,38 +546,83 @@ def _build_compare_table(
     return table
 
 
+def _resolve_venv_args(venv_dirs: list[str]) -> tuple[list[tuple[str | None, str]], list[str]]:
+    """Parse and validate venv arguments; return ``(parsed, labels)``.
+
+    *parsed* is a list of ``(host, path)`` tuples (``host`` is ``None`` for local).
+    *labels* are deduplicated display names for table columns.
+    """
+    parsed: list[tuple[str | None, str]] = []
+    raw_labels: list[str] = []
+    for arg in venv_dirs:
+        host, path = _parse_venv_arg(arg)
+        if host is None:
+            local = Path(path).expanduser().resolve()
+            if not local.is_dir():
+                typer.secho(f"error: {local} is not a directory.", fg=typer.colors.RED)
+                raise typer.Exit(1)
+            parsed.append((None, str(local)))
+            raw_labels.append(local.name)
+        else:
+            parsed.append((host, path))
+            raw_labels.append(f"{host}:{Path(path).name}")
+
+    # Deduplicate labels (append index suffix if two venvs share the same basename)
+    labels: list[str] = []
+    seen: dict[str, int] = {}
+    for label in raw_labels:
+        if label in seen:
+            seen[label] += 1
+            labels.append(f"{label}({seen[label]})")
+        else:
+            seen[label] = 0
+            labels.append(label)
+
+    return parsed, labels
+
+
+def _freeze_all(parsed: list[tuple[str | None, str]], labels: list[str]) -> dict[str, dict[str, str]]:
+    """Freeze each venv (local or remote) and return ``{label: packages}``."""
+    all_packages: dict[str, dict[str, str]] = {}
+    for (host, path), label in zip(parsed, labels, strict=True):
+        typer.secho(f"Freezing {label}...", fg=typer.colors.CYAN)
+        try:
+            all_packages[label] = _freeze_venv(Path(path)) if host is None else _freeze_remote_venv(host, path)
+        except subprocess.CalledProcessError as exc:
+            typer.secho(f"error: failed to freeze {label}:\n{exc.stderr}", fg=typer.colors.RED)
+            raise typer.Exit(1) from exc
+    return all_packages
+
+
 @app.command()
 def compare(
-    venv_dirs: Annotated[list[Path], typer.Argument(help="Virtual environment directories to compare.")],
+    venv_dirs: Annotated[
+        list[str],
+        typer.Argument(help="Virtual environment directories to compare. Use host:path for remote venvs (SSH)."),
+    ],
     no_latest: Annotated[
         bool,
         typer.Option("--no-latest", help="Do not fetch or show the 'Latest' column from PyPI."),
     ] = False,
 ):
-    """Compare installed package versions across virtual environments."""
+    """Compare installed package versions across virtual environments.
+
+    Each argument is either a local path or a remote venv in ``host:path`` format.
+    Remote venvs are accessed via SSH (host must be reachable without a password prompt).
+
+    Examples::
+
+        odoo-venv compare .venv ~/other-venv
+        odoo-venv compare .venv staging-host:~/.venvs/odoo18
+    """
     from rich.console import Console
 
     if not venv_dirs:
         typer.secho("error: at least one venv directory is required.", fg=typer.colors.RED)
         raise typer.Exit(1)
 
-    resolved = []
-    for d in venv_dirs:
-        d = d.expanduser().resolve()
-        if not d.is_dir():
-            typer.secho(f"error: {d} is not a directory.", fg=typer.colors.RED)
-            raise typer.Exit(1)
-        resolved.append(d)
-
-    # Freeze each venv
-    all_packages: dict[Path, dict[str, str]] = {}
-    for d in resolved:
-        typer.secho(f"Freezing {d.name}...", fg=typer.colors.CYAN)
-        try:
-            all_packages[d] = _freeze_venv(d)
-        except subprocess.CalledProcessError as exc:
-            typer.secho(f"error: failed to freeze {d}:\n{exc.stderr}", fg=typer.colors.RED)
-            raise typer.Exit(1) from exc
+    parsed, labels = _resolve_venv_args(venv_dirs)
+    all_packages = _freeze_all(parsed, labels)
 
     all_names = sorted({name for pkgs in all_packages.values() for name in pkgs})
 
@@ -543,7 +635,7 @@ def compare(
             for fut in concurrent.futures.as_completed(futures):
                 latest[futures[fut]] = fut.result()
 
-    table = _build_compare_table(resolved, all_packages, all_names, latest, show_latest=not no_latest)
+    table = _build_compare_table(labels, all_packages, all_names, latest, show_latest=not no_latest)
     Console().print(table)
 
 
