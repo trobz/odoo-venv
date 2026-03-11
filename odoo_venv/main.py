@@ -297,6 +297,9 @@ _KNOWN_TRANSITIVE_CONFLICTS: dict[str, list[str]] = {
     # google-books-api-wrapper depends on requests>=2.28 which depends on idna>=2.5,
     # conflicting with Odoo's older idna pin
     "google-books-api-wrapper": ["idna"],
+    # pandas>=1.0 depends on python-dateutil>=2.7.3 and pytz>=2017.3, which conflict
+    # with Odoo<=13's python-dateutil==2.5.3 and pytz==2016.7 pins.
+    "pandas": ["python-dateutil", "pytz"],
 }
 
 
