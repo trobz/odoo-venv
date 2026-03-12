@@ -2,6 +2,26 @@
 
 <!-- version list -->
 
+## v1.10.1 (2026-03-12)
+
+### Bug Fixes
+
+- Handle magento as NBI package so transitive suds-jurko build uses legacy setuptools
+  ([`fbb7b44`](https://github.com/trobz/odoo-venv/commit/fbb7b444600a2e3f328f38bc8eae980a78b6db2b))
+
+- Map MySQLdb to mysqlclient and drop mysql-python NBI workaround
+  ([`ec81f10`](https://github.com/trobz/odoo-venv/commit/ec81f10f60de160377e9821de08d7ec9ff971850))
+
+- Relax python-dateutil and pytz pins when altair is required
+  ([`7c7fb14`](https://github.com/trobz/odoo-venv/commit/7c7fb148f94c8b400b763c7cf60582bca441849b))
+
+- Relax python-dateutil and pytz pins when pandas is required
+  ([`ed8b409`](https://github.com/trobz/odoo-venv/commit/ed8b4095211974f04a400a4a67fb3231a1bb20ea))
+
+- Relax requests pin when klaviyo-api is required by an addon
+  ([`03c0285`](https://github.com/trobz/odoo-venv/commit/03c0285142ff1474fd2d81bb7e3d5313d2ec9191))
+
+
 ## v1.10.0 (2026-03-10)
 
 ### Bug Fixes
