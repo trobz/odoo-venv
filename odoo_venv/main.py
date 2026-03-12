@@ -41,7 +41,7 @@ _MANIFEST_IMPORT_TO_PIP: dict[str, str] = {
     "voicent": "Voicent-Python",
     "asterisk": "py-Asterisk",
     "facturx": "factur-x",
-    "mysqldb": "MySQL-python",
+    "mysqldb": "mysqlclient",
     "u2flib_server": "python-u2flib-server",
     "u2flib-server": "python-u2flib-server",
     "git": "GitPython",
@@ -297,6 +297,14 @@ _KNOWN_TRANSITIVE_CONFLICTS: dict[str, list[str]] = {
     # google-books-api-wrapper depends on requests>=2.28 which depends on idna>=2.5,
     # conflicting with Odoo's older idna pin
     "google-books-api-wrapper": ["idna"],
+    # pandas>=1.0 depends on python-dateutil>=2.7.3 and pytz>=2017.3, which conflict
+    # with Odoo<=13's python-dateutil==2.5.3 and pytz==2016.7 pins.
+    "pandas": ["python-dateutil", "pytz"],
+    # altair depends on pandas (transitive — not found by user-source scan)
+    "altair": ["python-dateutil", "pytz"],
+    # All klaviyo-api versions require requests>=2.26.0, which conflicts with Odoo<=13's
+    # requests==2.20.0 pin.  No compatible klaviyo-api version exists without relaxing it.
+    "klaviyo-api": ["requests"],
 }
 
 
@@ -527,17 +535,17 @@ def _install_requirements_with_retry(
 _NO_BUILD_ISOLATION_PACKAGES: dict[str, str] = {
     "vatnumber": "odoo_version <= '13.0'",
     "suds-jurko": "odoo_version <= '13.0'",
+    # magento depends on suds-jurko, so the transitive build of suds-jurko also
+    # needs the legacy setuptools already present in the venv.
+    "magento": "odoo_version <= '13.0'",
     "rfc6266-parser": "",
-    "mysql-python": "",
 }
 
 # Hidden build-time dependencies that must be pre-installed in the venv before a
 # --no-build-isolation install can succeed.  These are not declared by the package
 # itself (hence "hidden") and are not part of the regular requirements.
 # Format: { normalised_pkg_name: [build_dep, ...] }
-_NBI_BUILD_DEPS: dict[str, list[str]] = {
-    "mysql-python": ["ConfigParser"],
-}
+_NBI_BUILD_DEPS: dict[str, list[str]] = {}
 
 
 def _collect_no_build_isolation_specs(
@@ -556,6 +564,10 @@ def _collect_no_build_isolation_specs(
     >>> _collect_no_build_isolation_specs(["rfc6266_parser==0.0.6", "requests"], {}, "17.0", None)
     {'rfc6266-parser': 'rfc6266_parser==0.0.6'}
     >>> _collect_no_build_isolation_specs(["vatnumber", "requests"], {}, "14.0", None)
+    {}
+    >>> _collect_no_build_isolation_specs(["magento==3.1", "requests"], {}, "12.0", None)
+    {'magento': 'magento==3.1'}
+    >>> _collect_no_build_isolation_specs(["magento==3.1", "requests"], {}, "14.0", None)
     {}
     >>> _collect_no_build_isolation_specs(["vatnumber==1.2", "requests"], {}, "13.0", None)
     {'vatnumber': 'vatnumber==1.2'}
