@@ -1,5 +1,6 @@
 import concurrent.futures
 import json
+import re
 import subprocess
 import sys
 import urllib.request
@@ -443,7 +444,7 @@ def _freeze_venv(venv_dir: Path) -> dict[str, str]:
         line = line.strip()
         if "==" in line:
             name, ver = line.split("==", 1)
-            pkgs[name.lower()] = ver
+            pkgs[re.sub(r"[-_.]+", "-", name).lower()] = ver
     return pkgs
 
 
@@ -473,7 +474,7 @@ def _freeze_remote_venv(host: str, remote_path: str) -> dict[str, str]:
         line = line.strip()
         if "==" in line:
             name, ver = line.split("==", 1)
-            pkgs[name.lower()] = ver
+            pkgs[re.sub(r"[-_.]+", "-", name).lower()] = ver
     return pkgs
 
 
@@ -484,7 +485,7 @@ def _parse_requirements_text(text: str) -> dict[str, str]:
         line = line.strip()
         if line and not line.startswith("#") and "==" in line:
             name, ver = line.split("==", 1)
-            pkgs[name.lower()] = ver
+            pkgs[re.sub(r"[-_.]+", "-", name).lower()] = ver
     return pkgs
 
 
