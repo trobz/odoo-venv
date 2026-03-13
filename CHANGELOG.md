@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v1.11.0 (2026-03-13)
+
+### Features
+
+- Accept requirements files as compare sources
+  ([`deb8232`](https://github.com/trobz/odoo-venv/commit/deb82320c5bc88e748de4d657c7a8840cade14ff))
+
+- Support remote venvs in compare command via SSH
+  ([`73cf17a`](https://github.com/trobz/odoo-venv/commit/73cf17a071a85f7ae7aa81683f336dee2e19dc37))
+
+
 ## v1.10.1 (2026-03-12)
 
 ### Bug Fixes
