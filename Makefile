@@ -29,9 +29,18 @@ clean-build: ## Clean build artifacts
 	@echo "🚀 Removing build artifacts"
 	@uv run python -c "import shutil; import os; shutil.rmtree('dist') if os.path.exists('dist') else None"
 
+.PHONY: docs
+docs: ## Build documentation site
+	@uv run --group dev zensical build --clean
+
+.PHONY: docs-serve
+docs-serve: ## Serve documentation locally
+	@uv run --group dev zensical serve
+
 .PHONY: help
 help:
 	@uv run python -c "import re; \
 	[[print(f'\033[36m{m[0]:<20}\033[0m {m[1]}') for m in re.findall(r'^([a-zA-Z_-]+):.*?## (.*)$$', open(makefile).read(), re.M)] for makefile in ('$(MAKEFILE_LIST)').strip().split()]"
+
 
 .DEFAULT_GOAL := help
