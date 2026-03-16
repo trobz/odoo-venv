@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.11.1 (2026-03-16)
+
+### Bug Fixes
+
+- **compare**: Normalize package names per PEP 503 for consistent matching
+  ([`03fe28c`](https://github.com/trobz/odoo-venv/commit/03fe28caf8460f39d88d81439d0d8df98b15706b))
+
+
 ## v1.11.0 (2026-03-13)
 
 ### Features
