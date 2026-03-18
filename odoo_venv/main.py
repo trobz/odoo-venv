@@ -7,12 +7,22 @@ import sys
 import tempfile
 from collections import defaultdict
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import typer
 from packaging.markers import Marker, default_environment
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.version import parse as parse_version
+
+
+@dataclass
+class VenvResult:
+    """Result of create_odoo_venv() containing origin tracking data."""
+
+    requirements: dict[str, list[str]] = field(default_factory=dict)
+    ignored: dict[str, list[str]] = field(default_factory=dict)
+
 
 PKG_NAME_PATTERN = re.compile(r"(?P<lib_name>[a-z0-9A-Z\-\_\.]+)((>|<|=)=)?(.*)")
 
@@ -306,6 +316,46 @@ _KNOWN_TRANSITIVE_CONFLICTS: dict[str, list[str]] = {
     # requests==2.20.0 pin.  No compatible klaviyo-api version exists without relaxing it.
     "klaviyo-api": ["requests"],
 }
+
+
+def _build_labeled_user_sources(
+    extra_requirements: list[str] | None,
+    extra_requirements_file: str | None,
+    install_addons_dirs_requirements: bool,
+    addons_paths: list[str] | None,
+    manifest_files: list[Path],
+    parsed_manifests: dict[Path, dict],
+) -> list[tuple[list[str], str]]:
+    """Build (req_lines, label) pairs for each user requirement source."""
+    result: list[tuple[list[str], str]] = []
+    if extra_requirements:
+        result.append((extra_requirements, "--extra-requirement"))
+    if extra_requirements_file:
+        path = Path(extra_requirements_file).expanduser().resolve()
+        if path.exists():
+            result.append((path.read_text(encoding="utf-8").splitlines(), f"--extra-requirements-file ({path.name})"))
+    if install_addons_dirs_requirements and addons_paths:
+        for p in addons_paths:
+            req_file = Path(p) / "requirements.txt"
+            if req_file.exists():
+                result.append((req_file.read_text(encoding="utf-8").splitlines(), f"addons dir ({Path(p).name})"))
+    for mf in manifest_files:
+        ext_deps = parsed_manifests[mf].get("external_dependencies", {})
+        if isinstance(ext_deps.get("python"), list):
+            result.append((ext_deps["python"], f"addon manifest ({mf.parent.name})"))
+    return result
+
+
+def _identify_constrained_sources(
+    labeled_sources: list[tuple[list[str], str]],
+    target_env: dict[str, str],
+) -> dict[str, str]:
+    """Map each constrained package to its user source label (e.g. "--extra-requirement")."""
+    sources: dict[str, str] = {}
+    for lines, label in labeled_sources:
+        for pkg in _collect_constrained_packages(lines, target_env):
+            sources.setdefault(pkg, label)
+    return sources
 
 
 def _scan_user_sources(
@@ -618,20 +668,20 @@ def _process_requirement_line(
     ignored_req_map: dict,
     tmp_file,
     target_env_for_markers: dict[str, str],
-) -> bool:
+) -> tuple[bool, str | None]:
     req_line = req_line.strip()
     if not req_line or req_line.startswith("#"):
-        return False
+        return False, None
 
     try:
         valid_line = _keep_if_marker_matches(req_line, env=target_env_for_markers)
         if not valid_line:
-            return False
+            return False, None
 
         req = Requirement(valid_line)
 
         should_ignore = False
-        req_name_normalized = re.sub(r"[-_.]", "-", req.name.lower())
+        req_name_normalized = re.sub(r"[-_.]+", "-", req.name.lower())
         if req_name_normalized in ignored_req_map:
             for ignored_req in ignored_req_map[req_name_normalized]:
                 if not ignored_req.specifier or (
@@ -641,18 +691,60 @@ def _process_requirement_line(
                     break
 
         if should_ignore:
-            return False
+            return False, None
         else:
             tmp_file.write(valid_line + "\n")
-            return True
+            return True, req_name_normalized
 
     except InvalidRequirement:
         match = PKG_NAME_PATTERN.match(req_line)
         if match and match.group("lib_name").lower().strip() in ignored_req_map:
-            return False
+            return False, None
         else:
             tmp_file.write(req_line + "\n")
-            return True
+            pkg_name = re.sub(r"[-_.]+", "-", match.group("lib_name").lower()) if match else None
+            return True, pkg_name
+
+
+def _freeze_venv(venv_dir: Path) -> dict[str, str]:
+    """Run ``uv pip freeze`` on a venv and return ``{normalized_name: version}``."""
+    cmd = ["uv", "pip", "freeze", "--python", str(venv_dir)]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True)  # noqa: S603
+    pkgs: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if "==" in line:
+            name, ver = line.split("==", 1)
+            pkgs[re.sub(r"[-_.]+", "-", name).lower()] = ver
+    return pkgs
+
+
+def _build_reverse_dep_map(venv_dir: Path, explicit_pkgs: set[str]) -> dict[str, list[str]]:
+    """Build a map of {transitive_dep: [parent_pkg, ...]} using ``uv pip show``.
+
+    Runs ``uv pip show`` on all *explicit_pkgs* at once, parses ``Requires:`` lines,
+    and returns a reverse mapping so each dependency knows which explicit package pulled it in.
+    """
+    if not explicit_pkgs:
+        return {}
+    cmd = ["uv", "pip", "show", "--python", str(venv_dir), *sorted(explicit_pkgs)]
+    result = subprocess.run(cmd, capture_output=True, text=True)  # noqa: S603
+    if result.returncode != 0:
+        return {}
+
+    reverse: dict[str, list[str]] = {}
+    current_name = ""
+    for line in result.stdout.splitlines():
+        if line.startswith("Name:"):
+            current_name = re.sub(r"[-_.]+", "-", line.split(":", 1)[1].strip()).lower()
+        elif line.startswith("Requires:") and current_name:
+            deps_str = line.split(":", 1)[1].strip()
+            if deps_str:
+                for dep in deps_str.split(","):
+                    dep_normalized = re.sub(r"[-_.]+", "-", dep.strip()).lower()
+                    if dep_normalized:
+                        reverse.setdefault(dep_normalized, []).append(current_name)
+    return reverse
 
 
 def create_odoo_venv(  # noqa: C901
@@ -674,9 +766,15 @@ def create_odoo_venv(  # noqa: C901
     verbose: bool = False,
     dry_run: bool = False,
     skip_on_failure: bool = False,
-):
+    ignore_sources: dict[str, str] | None = None,
+) -> VenvResult:
     odoo_dir = Path(odoo_dir).expanduser().resolve()
     venv_dir = Path(venv_dir).expanduser().resolve()
+    odoo_reqs_path = odoo_dir / "requirements.txt"
+
+    # Origin tracking dicts
+    origins: dict[str, list[str]] = defaultdict(list)
+    ignored_tracking: dict[str, list[str]] = defaultdict(list)
 
     # 1. Determine Python version
     if not python_version:
@@ -775,6 +873,9 @@ def create_odoo_venv(  # noqa: C901
                 fg=typer.colors.RED,
             )
 
+    # Snapshot explicit ignores now — ignored_req_map gets more entries later (auto-override, NBI)
+    explicit_ignore_names: set[str] = set(ignored_req_map.keys())
+
     # Hoist manifest discovery so it can be reused in both the pre-scan and the main loop.
     manifest_files: list[Path] = []
     if install_addons_manifests_requirements and addons_paths:
@@ -786,11 +887,23 @@ def create_odoo_venv(  # noqa: C901
     # Collect the set of packages actually present in the base requirement files
     # (Odoo's requirements.txt and addons dirs).  Auto-ignore logic is restricted to
     # this set so we never silently drop a package that Odoo doesn't pin.
+    # Also build a specifier map for display purposes (e.g. "lxml==4.9.0").
     base_pinned: set[str] = set()
+    base_specifiers: dict[str, str] = {}  # {normalized_name: "name==version"}
     for req_file in all_req_files:
-        base_pinned |= _collect_mentioned_packages(
-            req_file.read_text(encoding="utf-8").splitlines(), target_env_for_markers
-        )
+        lines = req_file.read_text(encoding="utf-8").splitlines()
+        base_pinned |= _collect_mentioned_packages(lines, target_env_for_markers)
+        for line in lines:
+            line = line.split("#")[0].strip()
+            if not line:
+                continue
+            try:
+                req = Requirement(line)
+                if req.specifier and (not req.marker or req.marker.evaluate(environment=target_env_for_markers)):
+                    name = re.sub(r"[-_.]+", "-", req.name.lower())
+                    base_specifiers[name] = f"{req.name}{req.specifier}"
+            except InvalidRequirement:
+                pass
 
     scan_args = (
         extra_requirements,
@@ -805,13 +918,28 @@ def create_odoo_venv(  # noqa: C901
     # Pre-scan user sources for packages with version specifiers.
     # When a user source pins/constrains a package that Odoo also pins, Odoo's stricter
     # pin is skipped automatically so the user's version wins without an explicit ignore entry.
+    # Track which user source provided each override for display purposes.
     user_constrained = _scan_user_sources(_collect_constrained_packages, *scan_args)
+    labeled_sources = _build_labeled_user_sources(
+        extra_requirements,
+        extra_requirements_file,
+        install_addons_dirs_requirements,
+        addons_paths,
+        manifest_files,
+        parsed_manifests,
+    )
+    user_constrained_sources = _identify_constrained_sources(labeled_sources, target_env_for_markers)
     for pkg_name in user_constrained & base_pinned:
         if not any(not r.specifier for r in ignored_req_map[pkg_name]):
             ignored_req_map[pkg_name].append(Requirement(pkg_name))
+            # Skip auto_override tracking when already explicitly ignored (e.g. by preset)
+            if pkg_name not in explicit_ignore_names:
+                source = user_constrained_sources.get(pkg_name, "user requirement")
+                ignored_tracking[pkg_name].append(f"auto_override:{source}")
             if verbose:
+                source = user_constrained_sources.get(pkg_name, "user requirement")
                 typer.secho(
-                    f"  i  Auto-ignoring Odoo's '{pkg_name}' pin (overridden by user requirement)",
+                    f"  i  Auto-ignoring Odoo's '{pkg_name}' pin (overridden by {source})",
                     fg=typer.colors.CYAN,
                 )
 
@@ -825,6 +953,9 @@ def create_odoo_venv(  # noqa: C901
                 continue
             if not any(not r.specifier for r in ignored_req_map[transitive]):
                 ignored_req_map[transitive].append(Requirement(transitive))
+                # Skip transitive_conflict tracking when already explicitly ignored
+                if transitive not in explicit_ignore_names:
+                    ignored_tracking[transitive].append(f"transitive_conflict:{pkg_name}")
                 if verbose:
                     typer.secho(
                         f"  i  Auto-ignoring Odoo's '{transitive}' pin (transitively required by '{pkg_name}')",
@@ -853,11 +984,18 @@ def create_odoo_venv(  # noqa: C901
             no_build_isolation_specs.update(_collect_no_build_isolation_specs(ext_deps["python"], *_nbi_args))
     for pkg_name in no_build_isolation_specs:
         ignored_req_map[pkg_name].append(Requirement(pkg_name))
+        origins.setdefault(pkg_name, []).append("no_build_isolation")
         if verbose:
             typer.secho(
                 f"  i  Auto-ignoring '{pkg_name}' (will install separately with --no-build-isolation)",
                 fg=typer.colors.CYAN,
             )
+
+    # Record explicit ignores with source info when available
+    _ignore_sources = ignore_sources or {}
+    for pkg_name in explicit_ignore_names:
+        source_tag = _ignore_sources.get(pkg_name, "explicit_ignore")
+        ignored_tracking[pkg_name].append(source_tag)
 
     with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt", encoding="utf-8") as tmp:
         tmp_path = tmp.name
@@ -865,37 +1003,55 @@ def create_odoo_venv(  # noqa: C901
 
         if all_req_files:
             for req_file in all_req_files:
+                origin = "odoo" if req_file == odoo_reqs_path else f"addons_dir:{req_file.parent}"
                 with open(req_file, encoding="utf-8") as f:
                     for line in f:
-                        if _process_requirement_line(line, ignored_req_map, tmp, target_env_for_markers):
+                        written, pkg_name = _process_requirement_line(
+                            line, ignored_req_map, tmp, target_env_for_markers
+                        )
+                        if written and pkg_name:
                             req_count += 1
+                            if origin not in origins[pkg_name]:
+                                origins[pkg_name].append(origin)
 
         if extra_requirements:
             for req_line in extra_requirements:
-                if _process_requirement_line(req_line, {}, tmp, target_env_for_markers):
+                written, pkg_name = _process_requirement_line(req_line, {}, tmp, target_env_for_markers)
+                if written and pkg_name:
                     req_count += 1
+                    if "extra_requirement" not in origins[pkg_name]:
+                        origins[pkg_name].append("extra_requirement")
 
         if extra_requirements_file:
             extra_req_file = Path(extra_requirements_file).expanduser().resolve()
             if extra_req_file.exists():
+                origin = f"extra_requirements_file:{extra_req_file}"
                 with open(extra_req_file, encoding="utf-8") as f:
                     for line in f:
-                        if _process_requirement_line(line, {}, tmp, target_env_for_markers):
+                        written, pkg_name = _process_requirement_line(line, {}, tmp, target_env_for_markers)
+                        if written and pkg_name:
                             req_count += 1
+                            if origin not in origins[pkg_name]:
+                                origins[pkg_name].append(origin)
 
         if manifest_files:
             for manifest_file in manifest_files:
+                module_name = manifest_file.parent.name
                 manifest = parsed_manifests[manifest_file]
                 ext_deps = manifest.get("external_dependencies", {})
                 if isinstance(ext_deps.get("python"), list):
                     for dep in ext_deps["python"]:
-                        if _process_requirement_line(
+                        written, pkg_name = _process_requirement_line(
                             _resolve_manifest_dep(dep),
                             ignored_req_map,
                             tmp,
                             target_env_for_markers,
-                        ):
+                        )
+                        if written and pkg_name:
                             req_count += 1
+                            origin = f"manifest:{module_name}"
+                            if origin not in origins[pkg_name]:
+                                origins[pkg_name].append(origin)
 
     skipped: list[str] = []
     if req_count > 0:
@@ -923,6 +1079,10 @@ def create_odoo_venv(  # noqa: C901
                     + ", ".join(typer.style(p, fg=typer.colors.YELLOW) for p in skipped),
                     fg=typer.colors.YELLOW,
                 )
+                for pkg in skipped:
+                    pkg_normalized = re.sub(r"[-_.]+", "-", pkg.lower())
+                    ignored_tracking[pkg_normalized].append("install_failure")
+                    origins.pop(pkg_normalized, None)
         else:
             install_args = ["uv", "pip", "install", "-r", tmp_path]
             _run_command(
@@ -947,6 +1107,9 @@ def create_odoo_venv(  # noqa: C901
             dry_run=dry_run,
         )
         typer.secho("  ✔  setuptools<58.0 wheel installed")
+        for build_tool in ("setuptools", "wheel"):
+            if "build_tool" not in origins[build_tool]:
+                origins[build_tool].append("build_tool")
 
     # Install packages that cannot be built in isolation (e.g. vatnumber, rfc6266-parser).
     if no_build_isolation_specs:
@@ -1009,5 +1172,38 @@ def create_odoo_venv(  # noqa: C901
         f"Activate it with: source {typer.style(str(venv_dir / 'bin' / 'activate'), fg=typer.colors.YELLOW)}",
     )
 
-    if skipped:
-        sys.exit(1)
+    # Identify transitive dependencies: packages installed but not explicitly requested.
+    # Build a reverse dep map to record which explicit package pulled each transitive dep in.
+    if not dry_run:
+        try:
+            frozen = _freeze_venv(venv_dir)
+            transitive_pkgs = {p for p in frozen if p not in origins and p not in ignored_tracking}
+            if transitive_pkgs:
+                # Scan ALL installed packages so multi-level transitive deps are resolved
+                reverse_deps = _build_reverse_dep_map(venv_dir, set(frozen.keys()))
+                for pkg_name in transitive_pkgs:
+                    parents = reverse_deps.get(pkg_name, [])
+                    if parents:
+                        for parent in parents:
+                            origins[pkg_name].append(f"transitive:{parent}")
+                    else:
+                        origins[pkg_name].append("transitive")
+        except Exception:  # noqa: S110
+            pass
+
+    if install_odoo:
+        origins["odoo"].append("odoo")
+
+    # Enrich ignored keys with version specifiers for display (e.g. "lxml==4.9.0")
+    ignored_with_specifiers: dict[str, list[str]] = {}
+    for pkg_name, reasons in ignored_tracking.items():
+        display_key = base_specifiers.get(pkg_name, pkg_name)
+        ignored_with_specifiers[display_key] = reasons
+
+    exit_code = 1 if skipped else 0
+    result = VenvResult(requirements=dict(origins), ignored=ignored_with_specifiers)
+
+    if exit_code != 0:
+        sys.exit(exit_code)
+
+    return result
