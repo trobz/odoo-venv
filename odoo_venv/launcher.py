@@ -16,6 +16,7 @@ def create_launcher(
     venv_dir: str | Path,
     force: bool = False,
     project_dir: str | None = None,
+    odoo_dir: str | None = None,
     name: str | None = None,
 ) -> Path:
     """
@@ -28,6 +29,8 @@ def create_launcher(
         project_dir: Path to project directory; when set, the launcher will
             run ``odoo-addons-path`` at startup to resolve addons paths
             dynamically (unless ADDONS_PATH is explicitly configured).
+        odoo_dir: Path to Odoo source directory; passed to ``odoo-addons-path``
+            via ``--odoo-dir`` so the base Odoo addons are included.
         name: Custom launcher script name. When provided, the script is named
             ``odoo-v{major}-{name}`` instead of the default ``odoo-v{major}``.
 
@@ -61,6 +64,7 @@ def create_launcher(
         rendered = Template(template_content).substitute(
             VENV_DIR=str(venv_path),
             PROJECT_DIR=project_dir or "",
+            ODOO_DIR=odoo_dir or "",
         )
     except FileNotFoundError:
         typer.secho(f"Template not found: {TEMPLATE_PATH}", fg=typer.colors.RED, err=True)

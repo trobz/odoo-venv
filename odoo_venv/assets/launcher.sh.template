@@ -33,6 +33,7 @@ INIT_MODULES=""    # -i: Modules to install (comma-separated)
 UPDATE_MODULES=""  # -u: Modules to update (comma-separated)
 ADDONS_PATH="$${ADDONS_PATH:-}" # --addons-path: Addons paths (comma-separated, can be set via env var)
 PROJECT_DIR="$PROJECT_DIR"      # Project directory for dynamic addons-path detection
+ODOO_DIR="$ODOO_DIR"           # Odoo source directory (passed to odoo-addons-path --odoo-dir)
 DB_FILTER=""       # --db-filter: Database filter regex
 
 # Database Connection
@@ -80,7 +81,9 @@ resolve_addons_path() {
 
   # If PROJECT_DIR is configured, run odoo-addons-path to detect addons
   if [[ -n "$$PROJECT_DIR" ]] && command -v odoo-addons-path &>/dev/null; then
-    ADDONS_PATH=$$(odoo-addons-path "$$PROJECT_DIR" 2>/dev/null) || true
+    local cmd=(odoo-addons-path "$$PROJECT_DIR")
+    [[ -n "$$ODOO_DIR" ]] && cmd+=(--odoo-dir "$$ODOO_DIR")
+    ADDONS_PATH=$$("$${cmd[@]}" 2>/dev/null) || true
   fi
 }
 

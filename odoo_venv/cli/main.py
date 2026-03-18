@@ -418,14 +418,20 @@ def create(
 
     if create_launcher is not None or project_dir_value:
         # Determine launcher name: explicit value > project dir name > None (default odoo-vXX)
+        resolved_project_dir = str(Path(project_dir_value).expanduser().resolve()) if project_dir_value else None
         launcher_name = None
         if create_launcher and create_launcher != "auto":
             launcher_name = create_launcher
-        elif project_dir_value:
-            launcher_name = Path(project_dir_value).expanduser().resolve().name
+        elif resolved_project_dir:
+            launcher_name = Path(resolved_project_dir).name
 
         create_launcher_script(
-            odoo_version, venv_dir_path, force=True, project_dir=project_dir_value, name=launcher_name
+            odoo_version,
+            venv_dir_path,
+            force=True,
+            project_dir=resolved_project_dir,
+            odoo_dir=str(odoo_dir_path),
+            name=launcher_name,
         )
 
 
