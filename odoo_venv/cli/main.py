@@ -13,7 +13,7 @@ import typer
 from odoo_addons_path import (
     detect_codebase_layout,
     get_addons_path,
-    get_odoo_version_from_release,
+    get_odoo_version,  # ty: ignore[unresolved-import]  # requires odoo-addons-path>=1.2.0
 )
 
 from odoo_venv.exceptions import PresetNotFoundError
@@ -142,10 +142,8 @@ def _detect_project_layout(
     if detected_paths.get("odoo_dir"):
         odoo_dir_path = detected_paths["odoo_dir"][0].parent
 
-    # Infer version from release.py inside the detected odoo dir
-    odoo_version = None
-    if odoo_dir_path:
-        odoo_version = get_odoo_version_from_release(odoo_dir_path)
+    # Infer version from release.py or addon manifests
+    odoo_version = get_odoo_version(addons_path, odoo_dir=odoo_dir_path, detected_paths=detected_paths)
 
     return odoo_dir_path, odoo_version, addons_path
 
