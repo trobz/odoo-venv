@@ -32,6 +32,7 @@ DATABASE="odoo_db" # -d: Database name
 INIT_MODULES=""    # -i: Modules to install (comma-separated)
 UPDATE_MODULES=""  # -u: Modules to update (comma-separated)
 ADDONS_PATH="$${ADDONS_PATH:-}" # --addons-path: Addons paths (comma-separated, can be set via env var)
+PROJECT_DIR="$PROJECT_DIR"      # Project directory for dynamic addons-path detection
 DB_FILTER=""       # --db-filter: Database filter regex
 
 # Database Connection
@@ -68,6 +69,20 @@ LIMIT_TIME_CPU="3600"  # --limit-time-cpu: CPU time limit (seconds)
 LIMIT_TIME_REAL="3600" # --limit-time-real: Real time limit (seconds)
 MAX_CRON_THREADS="0"   # --max-cron-threads: Max cron threads
 PROXY_MODE=""          # --proxy-mode: Enable proxy mode (true/false)
+
+# ============================================================================
+# ADDONS PATH DETECTION
+# ============================================================================
+
+resolve_addons_path() {
+  # If ADDONS_PATH is already set explicitly, use it as-is
+  [[ -n "$$ADDONS_PATH" ]] && return
+
+  # If PROJECT_DIR is configured, run odoo-addons-path to detect addons
+  if [[ -n "$$PROJECT_DIR" ]] && command -v odoo-addons-path &>/dev/null; then
+    ADDONS_PATH=$$(odoo-addons-path "$$PROJECT_DIR" 2>/dev/null) || true
+  fi
+}
 
 # ============================================================================
 # COMMAND BUILDER
@@ -129,6 +144,7 @@ build_command() {
 # ============================================================================
 
 main() {
+  resolve_addons_path
   build_command
   CMD+=("$$@")
 

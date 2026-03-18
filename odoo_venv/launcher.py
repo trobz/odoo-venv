@@ -11,7 +11,9 @@ LAUNCHER_DIR = Path("~/.local/bin").expanduser()
 TEMPLATE_PATH = Path(__file__).parent / "assets" / "launcher.sh.template"
 
 
-def create_launcher(odoo_version: str, venv_dir: str | Path, force: bool = False) -> Path:
+def create_launcher(
+    odoo_version: str, venv_dir: str | Path, force: bool = False, project_dir: str | None = None
+) -> Path:
     """
     Generate a bash launcher script that auto-activates the venv and runs Odoo.
 
@@ -19,6 +21,9 @@ def create_launcher(odoo_version: str, venv_dir: str | Path, force: bool = False
         odoo_version: Odoo version string (e.g., "19.0")
         venv_dir: Path to the virtual environment
         force: Overwrite existing launcher if True
+        project_dir: Path to project directory; when set, the launcher will
+            run ``odoo-addons-path`` at startup to resolve addons paths
+            dynamically (unless ADDONS_PATH is explicitly configured).
 
     Returns:
         Path to the created launcher script
@@ -48,7 +53,10 @@ def create_launcher(odoo_version: str, venv_dir: str | Path, force: bool = False
     # Read and render template
     try:
         template_content = TEMPLATE_PATH.read_text()
-        rendered = Template(template_content).substitute(VENV_DIR=str(venv_path))
+        rendered = Template(template_content).substitute(
+            VENV_DIR=str(venv_path),
+            PROJECT_DIR=project_dir or "",
+        )
     except FileNotFoundError:
         typer.secho(f"Template not found: {TEMPLATE_PATH}", fg=typer.colors.RED, err=True)
         sys.exit(1)

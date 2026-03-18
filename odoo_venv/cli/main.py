@@ -415,8 +415,8 @@ def create(
         skip_on_failure=skip_on_failure,
     )
 
-    if create_launcher_flag:
-        create_launcher(odoo_version, venv_dir_path, force=True)
+    if create_launcher_flag or project_dir_value:
+        create_launcher(odoo_version, venv_dir_path, force=True, project_dir=project_dir_value)
 
 
 def _is_uv_venv(venv_dir: Path) -> bool:
