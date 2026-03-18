@@ -124,16 +124,18 @@ def main_callback(
     pass
 
 
-def _detect_project_layout(project_dir_value: str) -> tuple[Path | None, str | None, str | None]:
+def _detect_project_layout(
+    project_dir_value: str, *, verbose: bool = False
+) -> tuple[Path | None, str | None, str | None]:
     """Detect odoo_dir, odoo_version, and addons_path from a project directory.
 
     Returns:
         (odoo_dir_path, odoo_version, addons_path) — any value may be None if not detected.
     """
     project_dir_path = Path(project_dir_value).expanduser().resolve()
-    detected_paths = detect_codebase_layout(project_dir_path)
+    detected_paths = detect_codebase_layout(project_dir_path, verbose=verbose)
 
-    addons_path = get_addons_path(project_dir_path, detected_paths=detected_paths)
+    addons_path = get_addons_path(project_dir_path, detected_paths=detected_paths, verbose=verbose)
 
     # Resolve odoo_dir from detected layout
     odoo_dir_path = None
@@ -358,7 +360,7 @@ def create(
     # Auto-detect layout from --project-dir if provided
     project_dir_value = ctx.obj.get("project_dir") if ctx.obj else None
     detected_odoo_dir, detected_version, detected_addons_path = (
-        _detect_project_layout(project_dir_value) if project_dir_value else (None, None, None)
+        _detect_project_layout(project_dir_value, verbose=verbose) if project_dir_value else (None, None, None)
     )
 
     odoo_dir_path, odoo_version = _resolve_odoo_dir_and_version(
