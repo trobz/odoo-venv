@@ -17,7 +17,7 @@ from odoo_addons_path import (
 )
 
 from odoo_venv.exceptions import PresetNotFoundError
-from odoo_venv.launcher import create_launcher
+from odoo_venv.launcher import create_launcher as create_launcher_script
 from odoo_venv.main import create_odoo_venv
 from odoo_venv.utils import initialize_presets, load_presets, run_migration, split_escaped
 
@@ -326,13 +326,15 @@ def create(
             help="Use a preset of options. Preset values can be overriden by other options.",
         ),
     ] = None,
-    create_launcher_flag: Annotated[
-        bool,
+    create_launcher: Annotated[
+        str | None,
         typer.Option(
-            "--create-launcher/--no-create-launcher",
-            help="Generate a launcher script in ~/.local/bin/.",
+            "--create-launcher",
+            help="Generate a launcher script in ~/.local/bin/. "
+            "Pass a name (e.g. --create-launcher=myproject) to customize, "
+            "or pass --create-launcher=auto to auto-name from --project-dir.",
         ),
-    ] = False,
+    ] = None,
     project_dir: Annotated[
         str | None,
         typer.Option(
@@ -414,8 +416,17 @@ def create(
         skip_on_failure=skip_on_failure,
     )
 
-    if create_launcher_flag or project_dir_value:
-        create_launcher(odoo_version, venv_dir_path, force=True, project_dir=project_dir_value)
+    if create_launcher is not None or project_dir_value:
+        # Determine launcher name: explicit value > project dir name > None (default odoo-vXX)
+        launcher_name = None
+        if create_launcher and create_launcher != "auto":
+            launcher_name = create_launcher
+        elif project_dir_value:
+            launcher_name = Path(project_dir_value).expanduser().resolve().name
+
+        create_launcher_script(
+            odoo_version, venv_dir_path, force=True, project_dir=project_dir_value, name=launcher_name
+        )
 
 
 def _is_uv_venv(venv_dir: Path) -> bool:
@@ -717,4 +728,4 @@ def create_odoo_launcher(
 ):
     """Generate a launcher script in ~/.local/bin/ for the Odoo environment"""
     venv_dir_path = Path(venv_dir).expanduser().resolve()
-    create_launcher(odoo_version, venv_dir_path, force=force)
+    create_launcher_script(odoo_version, venv_dir_path, force=force)
