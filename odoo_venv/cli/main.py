@@ -162,12 +162,13 @@ def _resolve_odoo_dir_and_version(
     Exits with an error if neither can be resolved.
     """
     # Resolve odoo_dir: explicit flag > detected > default path from version
+    resolved_version_for_path = odoo_version or detected_version
     if odoo_dir:
         odoo_dir_path = Path(odoo_dir).expanduser().resolve()
     elif detected_odoo_dir:
         odoo_dir_path = detected_odoo_dir
-    elif odoo_version:
-        odoo_dir_path = Path(f"~/code/odoo/odoo/{odoo_version}").expanduser()
+    elif resolved_version_for_path:
+        odoo_dir_path = Path(f"~/code/odoo/odoo/{resolved_version_for_path}").expanduser()
     else:
         typer.secho("error: ODOO_VERSION is required when --project-dir is not used.", fg=typer.colors.RED)
         raise typer.Exit(1)
