@@ -40,6 +40,9 @@ module-root = ""
 [project.optional-dependencies]
 build = ["uv ~= 0.7.12"]
 
+[tool.uv.sources]
+odoo-addons-path = { git = "https://github.com/trobz/odoo-addons-path", branch = "feat/version-detection" }
+
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
 build_command = """
