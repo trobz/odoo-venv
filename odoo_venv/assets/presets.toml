@@ -103,6 +103,12 @@ command = ["uv", "pip", "install", "setuptools<82.0"]
 when = "odoo_version > '13.0' and odoo_version <= '17.0'"
 stage = "after_requirements"
 
+# setuptools>=82.0 breaks gevent==22.10.2 which we pin for Python 3.10
+[[common.extra_commands]]
+command = ["uv", "pip", "install", "setuptools<82.0"]
+when = "odoo_version > '17.0' and python_version == '3.10'"
+stage = "after_requirements"
+
 # Install cbor2==5.4.3 for Odoo >= 18.0
 # TMP: remove once proper fix is merged in odoo
 # See https://github.com/OCA/oca-ci/pull/119
