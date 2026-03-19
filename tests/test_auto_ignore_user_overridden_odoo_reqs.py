@@ -1,5 +1,6 @@
+import subprocess
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -17,15 +18,25 @@ def _make_odoo_dir(tmp_path: Path, reqs: str) -> Path:
 
 
 def _run_dry(tmp_path: Path, odoo_dir: Path, **kwargs) -> str:
-    """Run create_odoo_venv in dry-run mode and return the temp requirements file contents.
+    """Run create_odoo_venv with mocked subprocess calls and return the temp requirements file contents.
 
     Patches os.remove to capture the temp file path before deletion.
+    Patches subprocess.run and _run_command to prevent real uv/pip calls
+    (tests only check requirement filtering logic).
     Accepts any create_odoo_venv kwarg to override defaults.
     """
     captured = []
     original_remove = __import__("os").remove
 
-    with patch("odoo_venv.main.os.remove", side_effect=lambda p: captured.append(p)):
+    mock_result = MagicMock(spec=subprocess.CompletedProcess)
+    mock_result.returncode = 0
+    mock_result.stdout = ""
+
+    with (
+        patch("odoo_venv.main.os.remove", side_effect=lambda p: captured.append(p)),
+        patch("odoo_venv.main.subprocess.run", return_value=mock_result),
+        patch("odoo_venv.main._run_command"),
+    ):
         create_odoo_venv(
             odoo_version=kwargs.pop("odoo_version", "17.0"),
             odoo_dir=odoo_dir,
@@ -33,7 +44,6 @@ def _run_dry(tmp_path: Path, odoo_dir: Path, **kwargs) -> str:
             python_version=kwargs.pop("python_version", "3.10"),
             install_odoo=False,
             install_odoo_requirements=True,
-            dry_run=True,
             **kwargs,
         )
 
