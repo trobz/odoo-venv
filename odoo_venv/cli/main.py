@@ -1,6 +1,7 @@
 import concurrent.futures
 import json
 import re
+import shutil
 import subprocess
 import sys
 import urllib.request
@@ -15,11 +16,20 @@ from odoo_addons_path import (
     get_addons_path,
     get_odoo_version_from_release,
 )
+from rich.console import Console
 
 from odoo_venv.exceptions import PresetNotFoundError
 from odoo_venv.launcher import create_launcher
 from odoo_venv.main import create_odoo_venv
-from odoo_venv.utils import initialize_presets, load_presets, run_migration, split_escaped
+from odoo_venv.utils import (
+    VENV_CONFIG_FILENAME,
+    initialize_presets,
+    load_presets,
+    read_venv_config,
+    run_migration,
+    split_escaped,
+    write_venv_config,
+)
 
 app = typer.Typer()
 initialize_presets()
@@ -37,6 +47,84 @@ ODOO_PYTHON_VERSIONS = {
     "18.0": "3.10",
     "19.0": "3.10",
 }
+
+
+_IGNORE_PARAM_NAMES = (
+    "ignore_from_odoo_requirements",
+    "ignore_from_addons_dirs_requirements",
+    "ignore_from_addons_manifests_requirements",
+)
+
+
+def _normalize_pkg_name(pkg: str) -> str:
+    """Normalize a package name to match how create_odoo_venv normalizes ignore names."""
+    from packaging.requirements import InvalidRequirement, Requirement
+
+    try:
+        return Requirement(pkg).name.lower()
+    except InvalidRequirement:
+        return pkg.lower()
+
+
+def _split_ignore_packages(value: str) -> list[str]:
+    """Split a comma-separated ignore string into normalized package names."""
+    return [_normalize_pkg_name(p.strip()) for p in value.split(",") if p.strip()]
+
+
+def _build_ignore_sources(
+    ctx: typer.Context,
+    preset_name: str | None,
+    ignore_args: dict[str, str | None],
+) -> dict[str, str]:
+    """Build a mapping of {package_name: source_tag} for explicit ignores.
+
+    Determines whether each ignored package came from a preset or a CLI argument
+    by inspecting ``ctx.get_parameter_source()``.  The CLI flag name is always
+    included so the user knows *which* argument caused the ignore.
+    """
+    import click
+
+    sources: dict[str, str] = {}
+    for param_name, value in ignore_args.items():
+        if not value:
+            continue
+        cli_flag = f"--{param_name.replace('_', '-')}"
+        is_from_preset = ctx.get_parameter_source(param_name) == click.core.ParameterSource.DEFAULT_MAP
+        for normalized in _split_ignore_packages(value):
+            if is_from_preset and preset_name:
+                sources[normalized] = f"explicit_ignore:preset:{preset_name}:{cli_flag}"
+            else:
+                sources[normalized] = f"explicit_ignore:{cli_flag}"
+    return sources
+
+
+def _build_ignore_sources_from_config(config: dict[str, str | bool]) -> dict[str, str]:
+    """Build ignore_sources from a stored .odoo-venv.toml config dict.
+
+    Used by the ``update`` command where there's no Typer context to inspect.
+    Loads the preset (if any) to determine which ignores came from it vs CLI.
+    """
+    preset_name = config.get("preset") or None
+    preset_ignores: dict[str, set[str]] = {}  # param_name → {normalized_pkg, ...}
+
+    if preset_name:
+        all_presets = load_presets()
+        if preset_name in all_presets:
+            preset_data = asdict(all_presets[preset_name])
+            for param_name in _IGNORE_PARAM_NAMES:
+                val = preset_data.get(param_name, "") or ""
+                preset_ignores[param_name] = set(_split_ignore_packages(val))
+
+    sources: dict[str, str] = {}
+    for param_name in _IGNORE_PARAM_NAMES:
+        value = str(config.get(param_name, "") or "")
+        cli_flag = f"--{param_name.replace('_', '-')}"
+        for normalized in _split_ignore_packages(value):
+            if normalized in preset_ignores.get(param_name, set()):
+                sources[normalized] = f"explicit_ignore:preset:{preset_name}:{cli_flag}"
+            else:
+                sources[normalized] = f"explicit_ignore:{cli_flag}"
+    return sources
 
 
 def _apply_preset(ctx: typer.Context, preset_name: str, all_presets: dict, *, silent: bool = False):
@@ -99,6 +187,37 @@ def project_dir_callback(ctx: typer.Context, param: typer.CallbackParam, value: 
             _apply_preset(ctx, "project", all_presets, silent=True)
 
     obj["project_dir"] = value
+    return value
+
+
+def from_config_callback(ctx: typer.Context, param: typer.CallbackParam, value: str | None):
+    if not value:
+        return None
+
+    path = Path(value).expanduser().resolve()
+    try:
+        args, _meta, _reqs, _ignored = read_venv_config(path)
+    except FileNotFoundError:
+        typer.secho(f"error: config file not found at {path}", fg=typer.colors.RED)
+        raise typer.Exit(1) from None
+
+    # If TOML specifies a preset, apply it first (lowest precedence)
+    preset_name = args.get("preset")
+    if preset_name:
+        all_presets = load_presets()
+        if preset_name in all_presets:
+            _apply_preset(ctx, preset_name, all_presets, silent=True)
+
+    # Overlay TOML args onto default_map (preset defaults < TOML values < CLI flags)
+    ctx.default_map = ctx.default_map or {}
+    # Remap TOML keys to CLI param names where they differ
+    key_remap = {"create_launcher": "create_launcher_flag"}
+    for key, val in args.items():
+        if key == "preset":
+            continue  # already applied above
+        if val != "" and val is not None:
+            mapped_key = key_remap.get(key, key)
+            ctx.default_map[mapped_key] = val
     return value
 
 
@@ -342,6 +461,15 @@ def create(
             "via odoo-addons-path and applies --preset=project.",
         ),
     ] = None,
+    from_config: Annotated[
+        str | None,
+        typer.Option(
+            "--from",
+            callback=from_config_callback,
+            is_eager=True,
+            help="Path to a venv dir or .odoo-venv.toml file to recreate from.",
+        ),
+    ] = None,
     report_errors: Annotated[
         bool,
         typer.Option(
@@ -392,7 +520,18 @@ def create(
     # Get extra_commands from preset if available
     extra_commands = ctx.obj.get("extra_commands") if ctx.obj else None
 
-    create_odoo_venv(
+    # Build ignore_sources: map each ignored package to its source tag
+    ignore_sources = _build_ignore_sources(
+        ctx,
+        preset,
+        {
+            "ignore_from_odoo_requirements": ignore_from_odoo_requirements,
+            "ignore_from_addons_dirs_requirements": ignore_from_addons_dirs_requirements,
+            "ignore_from_addons_manifests_requirements": ignore_from_addons_manifests_requirements,
+        },
+    )
+
+    result = create_odoo_venv(
         odoo_version=odoo_version,
         odoo_dir=str(odoo_dir_path),
         venv_dir=str(venv_dir_path),
@@ -411,10 +550,40 @@ def create(
         verbose=verbose,
         dry_run=dry_run,
         skip_on_failure=skip_on_failure,
+        ignore_sources=ignore_sources,
     )
 
     if create_launcher_flag:
         create_launcher(odoo_version, venv_dir_path, force=True)
+
+    if not dry_run:
+        config_args = {
+            "preset": preset or "",
+            "python_version": python_version or "",
+            "odoo_dir": str(odoo_dir_path),
+            "venv_dir": str(venv_dir_path),
+            "addons_path": addons_path or "",
+            "install_odoo": install_odoo,
+            "install_odoo_requirements": install_odoo_requirements,
+            "ignore_from_odoo_requirements": ignore_from_odoo_requirements or "",
+            "install_addons_dirs_requirements": install_addons_dirs_requirements,
+            "ignore_from_addons_dirs_requirements": ignore_from_addons_dirs_requirements or "",
+            "install_addons_manifests_requirements": install_addons_manifests_requirements,
+            "ignore_from_addons_manifests_requirements": ignore_from_addons_manifests_requirements or "",
+            "extra_requirements_file": extra_requirements_file or "",
+            "extra_requirement": ",".join(extra_requirements_list) if extra_requirements_list else "",
+            "skip_on_failure": skip_on_failure,
+            "create_launcher": create_launcher_flag,
+            "project_dir": project_dir_value or "",
+        }
+
+        write_venv_config(
+            venv_dir_path,
+            config_args,
+            odoo_version,
+            requirements=result.requirements or None,
+            ignored=result.ignored or None,
+        )
 
 
 def _is_uv_venv(venv_dir: Path) -> bool:
@@ -717,3 +886,381 @@ def create_odoo_launcher(
     """Generate a launcher script in ~/.local/bin/ for the Odoo environment"""
     venv_dir_path = Path(venv_dir).expanduser().resolve()
     create_launcher(odoo_version, venv_dir_path, force=force)
+
+
+def _build_update_venv(merged: dict, odoo_version: str, tmp_venv_path: Path):
+    """Create a temporary venv from merged config. Returns VenvResult."""
+    # Resolve preset's extra_commands if a preset is set
+    extra_commands = None
+    merged_preset = merged.get("preset")
+    if merged_preset:
+        all_presets = load_presets()
+        if merged_preset in all_presets:
+            extra_commands = asdict(all_presets[merged_preset]).get("extra_commands")
+
+    # Build addons_paths list
+    addons_path_value = merged.get("addons_path", "")
+    addons_paths_list = (
+        [str(Path(p.strip()).expanduser().resolve()) for p in addons_path_value.split(",")]
+        if addons_path_value
+        else None
+    )
+
+    # Build extra_requirements list
+    extra_req_str = merged.get("extra_requirement", "")
+    extra_requirements_list = split_escaped(extra_req_str) if extra_req_str else []
+
+    # Build ignore_sources from stored config — check which ignores come from the preset
+    ignore_sources = _build_ignore_sources_from_config(merged)
+
+    return create_odoo_venv(
+        odoo_version=odoo_version,
+        odoo_dir=merged.get("odoo_dir", ""),
+        venv_dir=str(tmp_venv_path),
+        python_version=merged.get("python_version") or None,
+        install_odoo=merged.get("install_odoo", True),
+        install_odoo_requirements=merged.get("install_odoo_requirements", True),
+        ignore_from_odoo_requirements=merged.get("ignore_from_odoo_requirements") or None,
+        addons_paths=addons_paths_list,
+        install_addons_dirs_requirements=merged.get("install_addons_dirs_requirements", False),
+        ignore_from_addons_dirs_requirements=merged.get("ignore_from_addons_dirs_requirements") or None,
+        install_addons_manifests_requirements=merged.get("install_addons_manifests_requirements", False),
+        ignore_from_addons_manifests_requirements=merged.get("ignore_from_addons_manifests_requirements") or None,
+        extra_requirements_file=merged.get("extra_requirements_file") or None,
+        extra_requirements=extra_requirements_list or None,
+        extra_commands=extra_commands,
+        verbose=False,
+        dry_run=False,
+        skip_on_failure=merged.get("skip_on_failure", False),
+        ignore_sources=ignore_sources,
+    )
+
+
+def _swap_venvs(venv_path: Path, tmp_venv_path: Path, *, backup: bool) -> None:
+    """Atomically replace *venv_path* with *tmp_venv_path*."""
+
+    if backup:
+        bak_path = venv_path.parent / f"{venv_path.name}.bak"
+        if bak_path.exists():
+            shutil.rmtree(bak_path)
+        venv_path.rename(bak_path)
+        typer.secho(f"Backed up to {bak_path}", fg=typer.colors.CYAN)
+    else:
+        shutil.rmtree(venv_path)
+
+    tmp_venv_path.rename(venv_path)
+
+
+@app.command()
+def update(
+    venv_dir: Annotated[str, typer.Argument(help="Path to existing venv to update.")],
+    backup: Annotated[
+        bool,
+        typer.Option("--backup/--no-backup", help="Keep old venv as <venv>.bak."),
+    ] = True,
+):
+    """Update an existing venv by rebuilding from its .odoo-venv.toml configuration."""
+
+    venv_path = Path(venv_dir).expanduser().resolve()
+    if not venv_path.is_dir():
+        typer.secho(f"error: {venv_path} is not a directory.", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    config_file = venv_path / VENV_CONFIG_FILENAME
+    if not config_file.exists():
+        typer.secho(
+            f"error: {config_file} not found.\nRe-create it with: odoo-venv create ...",
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(1)
+
+    toml_args, meta, _reqs, _ignored = read_venv_config(venv_path)
+    odoo_version_val = meta.get("odoo_version", "")
+
+    # Create tmp venv
+    tmp_venv_path = venv_path.parent / f"{venv_path.name}.tmp"
+    if tmp_venv_path.exists():
+        shutil.rmtree(tmp_venv_path)
+
+    typer.secho(f"Creating temporary venv at {tmp_venv_path}...", fg=typer.colors.CYAN)
+
+    swapped = False
+    try:
+        result = _build_update_venv(toml_args, odoo_version_val, tmp_venv_path)
+
+        # Write fresh config with updated origin tracking data
+        write_venv_config(
+            tmp_venv_path,
+            toml_args,
+            odoo_version_val,
+            requirements=result.requirements or None,
+            ignored=result.ignored or None,
+        )
+
+        typer.secho("\nComparing packages...", fg=typer.colors.CYAN)
+        old_pkgs = _freeze_venv(venv_path)
+        new_pkgs = _freeze_venv(tmp_venv_path)
+
+        all_names = sorted({*old_pkgs, *new_pkgs})
+        all_packages = {"current": old_pkgs, "updated": new_pkgs}
+        table = _build_compare_table(
+            labels=["current", "updated"],
+            all_packages=all_packages,
+            all_names=all_names,
+            latest={},
+            show_latest=False,
+        )
+        Console().print(table)
+
+        added = sum(1 for n in all_names if n not in old_pkgs)
+        removed = sum(1 for n in all_names if n not in new_pkgs)
+        changed = sum(1 for n in all_names if n in old_pkgs and n in new_pkgs and old_pkgs[n] != new_pkgs[n])
+        typer.secho(f"\n{added} added, {removed} removed, {changed} changed", fg=typer.colors.CYAN)
+
+        confirm = typer.confirm("Apply update?", default=False)
+        if not confirm:
+            typer.secho("Update cancelled.", fg=typer.colors.YELLOW)
+            raise typer.Exit(0)
+
+        _swap_venvs(venv_path, tmp_venv_path, backup=backup)
+        swapped = True
+        typer.secho("Update complete.", fg=typer.colors.GREEN)
+    finally:
+        # Clean up tmp venv
+        if not swapped and tmp_venv_path.exists():
+            shutil.rmtree(tmp_venv_path)
+
+
+def _origin_label(origin: str) -> str:
+    """Return a short human-readable label for a requirement origin tag."""
+    if origin == "odoo":
+        return "Odoo requirements.txt"
+    if origin == "extra_requirement":
+        return "Extra requirement"
+    if origin == "transitive":
+        return "Transitive"
+    if origin == "build_tool":
+        return "Build tool"
+    if origin == "no_build_isolation":
+        return "No-build-isolation"
+    if origin.startswith("addons_dir:"):
+        return f"Addons dir: {origin[len('addons_dir:') :]}"
+    if origin.startswith("manifest:"):
+        return f"Addon manifest: {origin[len('manifest:') :]}"
+    if origin.startswith("extra_requirements_file:"):
+        return f"Extra file: {origin[len('extra_requirements_file:') :]}"
+    return origin
+
+
+def _ignored_reason_label(reason: str) -> str:
+    """Return a short human-readable label for an ignored reason tag."""
+    if reason == "explicit_ignore":
+        return "Explicitly ignored"
+    if reason.startswith("explicit_ignore:preset:"):
+        # Format: explicit_ignore:preset:<name>:<flag>
+        parts = reason.split(":", 3)  # ["explicit_ignore", "preset", "<name>", "<flag>"]
+        preset_name = parts[2] if len(parts) > 2 else "?"
+        cli_flag = parts[3] if len(parts) > 3 else ""
+        return f'Preset "{preset_name}" ({cli_flag})' if cli_flag else f'Preset "{preset_name}"'
+    if reason.startswith("explicit_ignore:"):
+        # Format: explicit_ignore:<flag>
+        cli_flag = reason[len("explicit_ignore:") :]
+        return cli_flag
+    if reason == "auto_override":
+        return "Overridden by user constraint"
+    if reason.startswith("auto_override:"):
+        source = reason[len("auto_override:") :]
+        return f"Overridden by {source}"
+    if reason == "install_failure":
+        return "Install failure (skip-on-failure)"
+    if reason.startswith("transitive_conflict:"):
+        return f"Transitive conflict with {reason[len('transitive_conflict:') :]}"
+    return reason
+
+
+_ORIGIN_ORDER = [
+    "odoo",
+    "addons_dir:",
+    "manifest:",
+    "extra_requirement",
+    "extra_requirements_file:",
+    "no_build_isolation",
+    "build_tool",
+    "transitive",
+]
+
+
+def _origin_sort_key(origin: str) -> int:
+    for i, prefix in enumerate(_ORIGIN_ORDER):
+        if origin == prefix or origin.startswith(prefix):
+            return i
+    return len(_ORIGIN_ORDER)
+
+
+def _group_requirements(
+    requirements: dict[str, list[str]], no_transitive: bool
+) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    """Group packages by origin and collect transitive children for tree rendering.
+
+    Returns ``(groups, transitive_children)`` where *groups* maps origin keys to
+    package lists and *transitive_children* maps parent packages to their transitive deps.
+    """
+    transitive_children: dict[str, list[str]] = {}
+    transitive_with_parent: set[str] = set()
+
+    groups: dict[str, list[str]] = {}
+    for pkg, origins in requirements.items():
+        is_transitive = all(o.startswith("transitive") for o in origins)
+        if no_transitive and is_transitive:
+            continue
+        if is_transitive:
+            parents = [o[len("transitive:") :] for o in origins if o.startswith("transitive:")]
+            if parents:
+                transitive_with_parent.add(pkg)
+                for parent in parents:
+                    transitive_children.setdefault(parent, []).append(pkg)
+                continue
+        primary = min(origins, key=_origin_sort_key)
+        groups.setdefault(primary, []).append(pkg)
+
+    # Orphaned transitive deps (parent not rendered anywhere) → flat "Transitive" group
+    rendered_pkgs = {pkg for pkgs in groups.values() for pkg in pkgs}
+    rendered_pkgs |= {child for children in transitive_children.values() for child in children}
+    for pkg in sorted(transitive_with_parent):
+        parents = [o[len("transitive:") :] for o in requirements[pkg] if o.startswith("transitive:")]
+        if not any(p in rendered_pkgs for p in parents):
+            groups.setdefault("transitive", []).append(pkg)
+
+    return groups, transitive_children
+
+
+def _build_pkg_lines(pkg: str, transitive_children: dict[str, list[str]], indent: str = "") -> list[str]:
+    """Build display lines for a package and its transitive children (recursive)."""
+    lines = [f"[cyan]{pkg}[/cyan]" if not indent else f"[dim]{indent}{pkg}[/dim]"]
+    children = sorted(transitive_children.get(pkg, []))
+    for i, child in enumerate(children):
+        is_last = i == len(children) - 1
+        prefix = "└── " if is_last else "├── "
+        continuation = "    " if is_last else "│   "
+        lines.append(f"[dim]{indent}{prefix}{child}[/dim]")
+        # Add grandchildren with proper indentation
+        grandchildren = sorted(transitive_children.get(child, []))
+        for j, grandchild in enumerate(grandchildren):
+            gc_prefix = "└── " if j == len(grandchildren) - 1 else "├── "
+            lines.append(f"[dim]{indent}{continuation}{gc_prefix}{grandchild}[/dim]")
+    return lines
+
+
+def _render_blocks_as_table(blocks: list[list[str]]):
+    """Render a list of markup-line blocks into a single Rich Table."""
+    from rich import box
+    from rich.table import Table
+    from rich.text import Text
+
+    t = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
+    t.add_column("Package", no_wrap=True)
+    for block in blocks:
+        for line in block:
+            t.add_row(Text.from_markup(line))
+    return t
+
+
+def _render_multicolumn(blocks: list[list[str]]):
+    """Distribute blocks across balanced columns and return a Rich Columns renderable."""
+    import math
+
+    from rich.columns import Columns
+
+    total_lines = sum(len(b) for b in blocks)
+    num_cols = min(3, math.ceil(total_lines / 20))
+    target_lines = math.ceil(total_lines / num_cols)
+    columns_blocks: list[list[list[str]]] = [[]]
+    current_lines = 0
+    for block in blocks:
+        if current_lines > 0 and current_lines + len(block) > target_lines and len(columns_blocks) < num_cols:
+            columns_blocks.append([])
+            current_lines = 0
+        columns_blocks[-1].append(block)
+        current_lines += len(block)
+    return Columns([_render_blocks_as_table(cb) for cb in columns_blocks], padding=(0, 2))
+
+
+def _print_requirements_panels(console, requirements: dict[str, list[str]], no_transitive: bool) -> None:
+    from rich.panel import Panel
+
+    if not requirements:
+        console.print("\n[dim]No requirement origin data available. Re-create the venv to populate it.[/dim]")
+        return
+
+    groups, transitive_children = _group_requirements(requirements, no_transitive)
+
+    console.print()
+    for origin in sorted(groups.keys(), key=_origin_sort_key):
+        pkgs = sorted(groups[origin])
+        label = _origin_label(origin)
+
+        blocks: list[list[str]] = [_build_pkg_lines(pkg, transitive_children) for pkg in pkgs]
+        total_lines = sum(len(b) for b in blocks)
+        content = (
+            _render_multicolumn(blocks) if len(pkgs) > 10 and total_lines > 15 else _render_blocks_as_table(blocks)
+        )
+        console.print(Panel(content, title=f"[bold green]{label}[/bold green] ({len(pkgs)})", expand=False))
+
+
+def _print_ignored_panel(console, ignored: dict[str, list[str]]) -> None:
+    from rich import box
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+
+    table = Table(box=box.ROUNDED, show_header=True, header_style="bold yellow")
+    table.add_column("Package", style="bold", no_wrap=True)
+    table.add_column("Reason")
+    for pkg in sorted(ignored.keys()):
+        reasons = ", ".join(_ignored_reason_label(r) for r in ignored[pkg])
+        table.add_row(pkg, Text(reasons, style="yellow"))
+    console.print(Panel(table, title="[bold yellow]Ignored Packages[/bold yellow]", expand=False))
+
+
+@app.command()
+def show(
+    venv_dir: Annotated[str, typer.Argument(help="Path to the venv directory.")] = "./.venv",
+    no_transitive: Annotated[
+        bool,
+        typer.Option("--no-transitive", help="Hide transitive dependencies."),
+    ] = False,
+):
+    """Show the configuration and installed packages of a venv."""
+    from rich.console import Console
+    from rich.panel import Panel
+
+    console = Console()
+    venv_path = Path(venv_dir).expanduser().resolve()
+
+    try:
+        args, meta, requirements, ignored = read_venv_config(venv_path)
+    except FileNotFoundError:
+        typer.secho(
+            f"error: no .odoo-venv.toml found in {venv_path}\nCreate a venv first with: odoo-venv create ...",
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(1) from None
+
+    # --- Config panel ---
+    odoo_version = meta.get("odoo_version", "unknown")
+    tool_version = meta.get("tool_version", "unknown")
+    config_lines = [
+        f"[bold]Venv:[/bold]          {venv_path}",
+        f"[bold]Odoo version:[/bold]  {odoo_version}",
+        f"[bold]Tool version:[/bold]  {tool_version}",
+    ]
+    for key, label in [("preset", "Preset"), ("python_version", "Python"), ("odoo_dir", "Odoo dir")]:
+        if val := args.get(key):
+            config_lines.append(f"[bold]{label + ':':<14}[/bold] {val}")
+    console.print(Panel("\n".join(config_lines), title="[bold cyan]Venv Configuration[/bold cyan]", expand=False))
+
+    _print_requirements_panels(console, requirements, no_transitive)
+
+    if ignored:
+        console.print()
+        _print_ignored_panel(console, ignored)
