@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.12.0 (2026-03-19)
+
+### Features
+
+- **docs**: Add documentation site with landing page, getting started guide, and troubleshooting
+  sections
+  ([`e438a48`](https://github.com/trobz/odoo-venv/commit/e438a485adfb48c8ce4a09786a3b6185f924189c))
+
+
 ## v1.11.2 (2026-03-19)
 
 ### Bug Fixes
