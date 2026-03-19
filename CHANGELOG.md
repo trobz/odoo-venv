@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.11.2 (2026-03-19)
+
+### Bug Fixes
+
+- **presets**: Pin setuptools<82.0 for Python 3.10 on Odoo 18.0+
+  ([`9fa32b5`](https://github.com/trobz/odoo-venv/commit/9fa32b5e6ac2c7cf61b055a5296c9df1fc4691ba))
+
+
 ## v1.11.1 (2026-03-16)
 
 ### Bug Fixes
