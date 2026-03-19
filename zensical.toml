@@ -1,0 +1,66 @@
+[project]
+site_name = "odoo-venv"
+site_url = "https://trobz.github.io/odoo-venv"
+site_description = "CLI tool to spin up isolated Odoo dev environments in seconds"
+site_author = "Trobz"
+docs_dir = "site-docs/docs"
+site_dir = "site"
+copyright = "Copyright &copy; 2025 Trobz"
+nav = [
+  {Home = "index.md"},
+  {"Getting Started" = "getting-started.md"},
+  {Reference = [{"create" = "reference/page-1.md"}, {"compare" = "reference/page-2.md"}, {"create-odoo-launcher" = "reference/page-3.md"}]},
+  {"Known Dependency Problems" = [{Overview = "known-dependency-problem/index.md"}, {"Import Name vs Package Name" = "known-dependency-problem/import-name-vs-package-name.md"}, {"Version Conflicts" = "known-dependency-problem/version-conflicts.md"}, {"Build Isolation Errors" = "known-dependency-problem/build-isolation-errors.md"}, {"Transitive Dependency Issues" = "known-dependency-problem/transitive-dependency-issues.md"}]},
+]
+extra_css = [
+  "stylesheets/hero.css",
+  "stylesheets/site.css",
+]
+
+# Three.js CDN — loaded globally so the hero scene can use it
+[[project.extra_javascript]]
+path = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"
+
+# Hero particle network animation — requires Three.js above
+[[project.extra_javascript]]
+path = "javascripts/hero-scene.js"
+
+
+
+[project.theme]
+language = "en"
+custom_dir = "site-docs/overrides"
+features = [
+    "content.code.copy",
+    "content.code.select",
+    "navigation.footer",
+    "navigation.indexes",
+    "navigation.path",
+    "navigation.sections",
+    "navigation.tabs",
+    "navigation.top",
+    "navigation.tracking",
+    "search.highlight",
+    "header.autohide"
+]
+
+[project.theme.icon]
+logo = "lucide/terminal"
+
+[[project.theme.palette]]
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to light mode"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/trobz/odoo-venv"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/python"
+link = "https://pypi.org/project/odoo-venv/"
