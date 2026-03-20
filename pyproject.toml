@@ -8,6 +8,10 @@ authors = [
 ]
 requires-python = ">=3.10"
 license = "AGPL-3.0"
+
+[project.urls]
+Homepage = "https://trobz.github.io/odoo-venv/"
+Repository = "https://github.com/trobz/odoo-venv"
 license-files = ["LICENSE"]
 dependencies = [
     "typer",
