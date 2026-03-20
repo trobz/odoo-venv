@@ -88,23 +88,43 @@ common configuration to all presets
 #
 # psycopg2 2.7.x uses Python 2's `basestring`, causing NameError on Python 3.
 # The 2.8.x line fixed this. Odoo 12 already pins 2.8.3 for python >= 3.8.
+#
+# pyopenssl<23.2.0 lacks upper bound on cryptography in its metadata. When an OCA addon
+# mentions cryptography (triggering auto-ignore of Odoo's cryptography pin), the latest
+# cryptography (41+) gets installed alongside old pyopenssl, causing:
+#   AttributeError: module 'lib' has no attribute 'X509_V_FLAG_NOTIFY_POLICY'
+# Odoo 15 pins pyopenssl==19.0.0 + cryptography==2.6.1,
+# Odoo 16 pins pyopenssl==20.0.1 + cryptography==3.4.8,
+# Odoo 17 pins pyopenssl==21.0.0 + cryptography==3.4.8.
+# All three must be replaced together — they are a tightly-coupled trio with urllib3.
+#
+# urllib3==1.26.5 (Odoo 15) uses cryptography.hazmat.backends.openssl.x509._Certificate,
+# an internal path removed in cryptography 42+. urllib3>=1.26.18 uses the public API instead.
+# We pin 1.26.14 as it's the earliest 1.26.x that avoids this import, and stays within
+# requests==2.25.1's requirement of urllib3>=1.21.1,<1.27.
 
 ignore_from_odoo_requirements = """
 gevent==21.8.0; sys_platform != 'win32' and python_version == '3.10',
 greenlet==1.1.2; sys_platform != 'win32' and python_version == '3.10',
 cbor2==5.4.2 ; python_version < '3.12',
-urllib3==1.26.5; python_version > '3.9' and python_version < '3.12',
+urllib3==1.26.5; python_version < '3.12',
 pyldap; sys_platform != 'win32',
 reportlab==3.3.0; python_version < '3.8',
-psycopg2==2.7.3.1; sys_platform != 'win32' and python_version < '3.8'
+psycopg2==2.7.3.1; sys_platform != 'win32' and python_version < '3.8',
+pyopenssl==19.0.0,
+pyopenssl==20.0.1,
+pyopenssl==21.0.0,
+cryptography<41.0.0
 """
 extra_requirement = """
 gevent==22.10.2; sys_platform == 'linux' and python_version == '3.10',
 greenlet==2.0.2; sys_platform == 'linux' and python_version == '3.10',
-urllib3==1.26.14; python_version > '3.9' and python_version < '3.12',
+urllib3==1.26.14; python_version < '3.12',
 python-ldap; sys_platform != 'win32' and python_version < '3.8',
 reportlab==3.5.13; python_version < '3.8',
-psycopg2==2.8.3; sys_platform != 'win32' and python_version < '3.8'
+psycopg2==2.8.3; sys_platform != 'win32' and python_version < '3.8',
+pyopenssl>=24.0.0,
+cryptography>=41.0.5
 """
 
 # always ignore those exotic requirements unless explicitely added
