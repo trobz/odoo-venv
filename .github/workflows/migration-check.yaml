@@ -1,0 +1,40 @@
+name: migration-check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'odoo_venv/assets/presets.toml'
+      - 'odoo_venv/migrations/**'
+
+jobs:
+  migration-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          # Full history needed to diff against base branch
+          fetch-depth: 0
+
+      - name: Check presets.toml has migration script
+        run: |
+          # Three-dot diff: only changes introduced by the PR,
+          # not commits added to main since the branch diverged
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          # Only newly added files count as valid migration scripts
+          ADDED=$(git diff --diff-filter=A --name-only origin/${{ github.base_ref }}...HEAD)
+
+          if echo "$CHANGED" | grep -q "odoo_venv/assets/presets.toml"; then
+            echo "presets.toml was modified — checking for new migration script..."
+
+            if echo "$ADDED" | grep -q "odoo_venv/migrations/.*\.py$"; then
+              echo "New migration script found. Check passed."
+            else
+              echo "::error::presets.toml was modified but no new migration script was added."
+              echo "::error::Add a migration script in odoo_venv/migrations/ (e.g. X_Y_Z.py matching the next release version)."
+              exit 1
+            fi
+          else
+            echo "presets.toml not modified — skipping check."
+          fi
