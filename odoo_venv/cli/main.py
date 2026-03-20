@@ -1,6 +1,7 @@
 import concurrent.futures
 import json
 import re
+import shutil
 import subprocess
 import sys
 import urllib.request
@@ -15,11 +16,20 @@ from odoo_addons_path import (
     get_addons_path,
     get_odoo_version_from_release,
 )
+from rich.console import Console
 
 from odoo_venv.exceptions import PresetNotFoundError
 from odoo_venv.launcher import create_launcher
 from odoo_venv.main import create_odoo_venv
-from odoo_venv.utils import initialize_presets, load_presets, run_migration, split_escaped
+from odoo_venv.utils import (
+    VENV_CONFIG_FILENAME,
+    initialize_presets,
+    load_presets,
+    read_venv_config,
+    run_migration,
+    split_escaped,
+    write_venv_config,
+)
 
 app = typer.Typer()
 initialize_presets()
@@ -99,6 +109,37 @@ def project_dir_callback(ctx: typer.Context, param: typer.CallbackParam, value: 
             _apply_preset(ctx, "project", all_presets, silent=True)
 
     obj["project_dir"] = value
+    return value
+
+
+def from_config_callback(ctx: typer.Context, param: typer.CallbackParam, value: str | None):
+    if not value:
+        return None
+
+    path = Path(value).expanduser().resolve()
+    try:
+        args, _meta = read_venv_config(path)
+    except FileNotFoundError:
+        typer.secho(f"error: config file not found at {path}", fg=typer.colors.RED)
+        raise typer.Exit(1) from None
+
+    # If TOML specifies a preset, apply it first (lowest precedence)
+    preset_name = args.get("preset")
+    if preset_name:
+        all_presets = load_presets()
+        if preset_name in all_presets:
+            _apply_preset(ctx, preset_name, all_presets, silent=True)
+
+    # Overlay TOML args onto default_map (preset defaults < TOML values < CLI flags)
+    ctx.default_map = ctx.default_map or {}
+    # Remap TOML keys to CLI param names where they differ
+    key_remap = {"create_launcher": "create_launcher_flag"}
+    for key, val in args.items():
+        if key == "preset":
+            continue  # already applied above
+        if val != "" and val is not None:
+            mapped_key = key_remap.get(key, key)
+            ctx.default_map[mapped_key] = val
     return value
 
 
@@ -338,6 +379,15 @@ def create(
             "via odoo-addons-path and applies --preset=project.",
         ),
     ] = None,
+    from_config: Annotated[
+        str | None,
+        typer.Option(
+            "--from",
+            callback=from_config_callback,
+            is_eager=True,
+            help="Path to a venv dir or .odoo-venv.toml file to recreate from.",
+        ),
+    ] = None,
     report_errors: Annotated[
         bool,
         typer.Option(
@@ -410,6 +460,29 @@ def create(
 
     if create_launcher_flag:
         create_launcher(odoo_version, venv_dir_path, force=True)
+
+    if not dry_run:
+        config_args = {
+            "preset": preset or "",
+            "python_version": python_version or "",
+            "odoo_dir": str(odoo_dir_path),
+            "venv_dir": str(venv_dir_path),
+            "addons_path": addons_path or "",
+            "install_odoo": install_odoo,
+            "install_odoo_requirements": install_odoo_requirements,
+            "ignore_from_odoo_requirements": ignore_from_odoo_requirements or "",
+            "install_addons_dirs_requirements": install_addons_dirs_requirements,
+            "ignore_from_addons_dirs_requirements": ignore_from_addons_dirs_requirements or "",
+            "install_addons_manifests_requirements": install_addons_manifests_requirements,
+            "ignore_from_addons_manifests_requirements": ignore_from_addons_manifests_requirements or "",
+            "extra_requirements_file": extra_requirements_file or "",
+            "extra_requirement": ",".join(extra_requirements_list) if extra_requirements_list else "",
+            "skip_on_failure": skip_on_failure,
+            "create_launcher": create_launcher_flag,
+            "project_dir": project_dir_value or "",
+        }
+
+        write_venv_config(venv_dir_path, config_args, odoo_version)
 
 
 def _is_uv_venv(venv_dir: Path) -> bool:
@@ -712,3 +785,136 @@ def create_odoo_launcher(
     """Generate a launcher script in ~/.local/bin/ for the Odoo environment"""
     venv_dir_path = Path(venv_dir).expanduser().resolve()
     create_launcher(odoo_version, venv_dir_path, force=force)
+
+
+def _build_update_venv(merged: dict, odoo_version: str, tmp_venv_path: Path) -> None:
+    """Create a temporary venv from merged config."""
+    # Resolve preset's extra_commands if a preset is set
+    extra_commands = None
+    merged_preset = merged.get("preset")
+    if merged_preset:
+        all_presets = load_presets()
+        if merged_preset in all_presets:
+            extra_commands = asdict(all_presets[merged_preset]).get("extra_commands")
+
+    # Build addons_paths list
+    addons_path_value = merged.get("addons_path", "")
+    addons_paths_list = (
+        [str(Path(p.strip()).expanduser().resolve()) for p in addons_path_value.split(",")]
+        if addons_path_value
+        else None
+    )
+
+    # Build extra_requirements list
+    extra_req_str = merged.get("extra_requirement", "")
+    extra_requirements_list = split_escaped(extra_req_str) if extra_req_str else []
+
+    create_odoo_venv(
+        odoo_version=odoo_version,
+        odoo_dir=merged.get("odoo_dir", ""),
+        venv_dir=str(tmp_venv_path),
+        python_version=merged.get("python_version") or None,
+        install_odoo=merged.get("install_odoo", True),
+        install_odoo_requirements=merged.get("install_odoo_requirements", True),
+        ignore_from_odoo_requirements=merged.get("ignore_from_odoo_requirements") or None,
+        addons_paths=addons_paths_list,
+        install_addons_dirs_requirements=merged.get("install_addons_dirs_requirements", False),
+        ignore_from_addons_dirs_requirements=merged.get("ignore_from_addons_dirs_requirements") or None,
+        install_addons_manifests_requirements=merged.get("install_addons_manifests_requirements", False),
+        ignore_from_addons_manifests_requirements=merged.get("ignore_from_addons_manifests_requirements") or None,
+        extra_requirements_file=merged.get("extra_requirements_file") or None,
+        extra_requirements=extra_requirements_list or None,
+        extra_commands=extra_commands,
+        verbose=False,
+        dry_run=False,
+        skip_on_failure=merged.get("skip_on_failure", False),
+    )
+
+
+def _swap_venvs(venv_path: Path, tmp_venv_path: Path, *, backup: bool) -> None:
+    """Atomically replace *venv_path* with *tmp_venv_path*."""
+
+    if backup:
+        bak_path = venv_path.parent / f"{venv_path.name}.bak"
+        if bak_path.exists():
+            shutil.rmtree(bak_path)
+        venv_path.rename(bak_path)
+        typer.secho(f"Backed up to {bak_path}", fg=typer.colors.CYAN)
+    else:
+        shutil.rmtree(venv_path)
+
+    tmp_venv_path.rename(venv_path)
+
+
+@app.command()
+def update(
+    venv_dir: Annotated[str, typer.Argument(help="Path to existing venv to update.")],
+    backup: Annotated[
+        bool,
+        typer.Option("--backup/--no-backup", help="Keep old venv as <venv>.bak."),
+    ] = True,
+):
+    """Update an existing venv by rebuilding from its .odoo-venv.toml configuration."""
+
+    venv_path = Path(venv_dir).expanduser().resolve()
+    if not venv_path.is_dir():
+        typer.secho(f"error: {venv_path} is not a directory.", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    config_file = venv_path / VENV_CONFIG_FILENAME
+    if not config_file.exists():
+        typer.secho(
+            f"error: {config_file} not found.\nRe-create it with: odoo-venv create ...",
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(1)
+
+    toml_args, meta = read_venv_config(venv_path)
+    odoo_version_val = meta.get("odoo_version", "")
+
+    # Create tmp venv
+    tmp_venv_path = venv_path.parent / f"{venv_path.name}.tmp"
+    if tmp_venv_path.exists():
+        shutil.rmtree(tmp_venv_path)
+
+    typer.secho(f"Creating temporary venv at {tmp_venv_path}...", fg=typer.colors.CYAN)
+
+    swapped = False
+    try:
+        _build_update_venv(toml_args, odoo_version_val, tmp_venv_path)
+
+        # Copy original config into the new venv (config is unchanged during update)
+        shutil.copy2(config_file, tmp_venv_path / VENV_CONFIG_FILENAME)
+
+        typer.secho("\nComparing packages...", fg=typer.colors.CYAN)
+        old_pkgs = _freeze_venv(venv_path)
+        new_pkgs = _freeze_venv(tmp_venv_path)
+
+        all_names = sorted({*old_pkgs, *new_pkgs})
+        all_packages = {"current": old_pkgs, "updated": new_pkgs}
+        table = _build_compare_table(
+            labels=["current", "updated"],
+            all_packages=all_packages,
+            all_names=all_names,
+            latest={},
+            show_latest=False,
+        )
+        Console().print(table)
+
+        added = sum(1 for n in all_names if n not in old_pkgs)
+        removed = sum(1 for n in all_names if n not in new_pkgs)
+        changed = sum(1 for n in all_names if n in old_pkgs and n in new_pkgs and old_pkgs[n] != new_pkgs[n])
+        typer.secho(f"\n{added} added, {removed} removed, {changed} changed", fg=typer.colors.CYAN)
+
+        confirm = typer.confirm("Apply update?", default=False)
+        if not confirm:
+            typer.secho("Update cancelled.", fg=typer.colors.YELLOW)
+            raise typer.Exit(0)
+
+        _swap_venvs(venv_path, tmp_venv_path, backup=backup)
+        swapped = True
+        typer.secho("Update complete.", fg=typer.colors.GREEN)
+    finally:
+        # Clean up tmp venv
+        if not swapped and tmp_venv_path.exists():
+            shutil.rmtree(tmp_venv_path)
