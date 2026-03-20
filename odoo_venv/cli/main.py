@@ -13,11 +13,11 @@ import typer
 from odoo_addons_path import (
     detect_codebase_layout,
     get_addons_path,
-    get_odoo_version_from_release,
+    get_odoo_version,  # ty: ignore[unresolved-import]  # requires odoo-addons-path>=1.2.0
 )
 
 from odoo_venv.exceptions import PresetNotFoundError
-from odoo_venv.launcher import create_launcher
+from odoo_venv.launcher import create_launcher as create_launcher_script
 from odoo_venv.main import create_odoo_venv
 from odoo_venv.utils import initialize_presets, load_presets, run_migration, split_escaped
 
@@ -124,26 +124,26 @@ def main_callback(
     pass
 
 
-def _detect_project_layout(project_dir_value: str) -> tuple[Path | None, str | None, str | None]:
+def _detect_project_layout(
+    project_dir_value: str, *, verbose: bool = False
+) -> tuple[Path | None, str | None, str | None]:
     """Detect odoo_dir, odoo_version, and addons_path from a project directory.
 
     Returns:
         (odoo_dir_path, odoo_version, addons_path) — any value may be None if not detected.
     """
     project_dir_path = Path(project_dir_value).expanduser().resolve()
-    detected_paths = detect_codebase_layout(project_dir_path)
+    detected_paths = detect_codebase_layout(project_dir_path, verbose=verbose)
 
-    addons_path = get_addons_path(project_dir_path, detected_paths=detected_paths)
+    addons_path = get_addons_path(project_dir_path, detected_paths=detected_paths, verbose=verbose)
 
     # Resolve odoo_dir from detected layout
     odoo_dir_path = None
     if detected_paths.get("odoo_dir"):
         odoo_dir_path = detected_paths["odoo_dir"][0].parent
 
-    # Infer version from release.py inside the detected odoo dir
-    odoo_version = None
-    if odoo_dir_path:
-        odoo_version = get_odoo_version_from_release(odoo_dir_path)
+    # Infer version from release.py or addon manifests
+    odoo_version = get_odoo_version(addons_path, odoo_dir=odoo_dir_path, detected_paths=detected_paths)
 
     return odoo_dir_path, odoo_version, addons_path
 
@@ -160,12 +160,13 @@ def _resolve_odoo_dir_and_version(
     Exits with an error if neither can be resolved.
     """
     # Resolve odoo_dir: explicit flag > detected > default path from version
+    resolved_version_for_path = odoo_version or detected_version
     if odoo_dir:
         odoo_dir_path = Path(odoo_dir).expanduser().resolve()
     elif detected_odoo_dir:
         odoo_dir_path = detected_odoo_dir
-    elif odoo_version:
-        odoo_dir_path = Path(f"~/code/odoo/odoo/{odoo_version}").expanduser()
+    elif resolved_version_for_path:
+        odoo_dir_path = Path(f"~/code/odoo/odoo/{resolved_version_for_path}").expanduser()
     else:
         typer.secho("error: ODOO_VERSION is required when --project-dir is not used.", fg=typer.colors.RED)
         raise typer.Exit(1)
@@ -321,13 +322,15 @@ def create(
             help="Use a preset of options. Preset values can be overriden by other options.",
         ),
     ] = None,
-    create_launcher_flag: Annotated[
-        bool,
+    create_launcher: Annotated[
+        str | None,
         typer.Option(
-            "--create-launcher/--no-create-launcher",
-            help="Generate a launcher script in ~/.local/bin/.",
+            "--create-launcher",
+            help="Generate a launcher script in ~/.local/bin/. "
+            "Pass a name (e.g. --create-launcher=myproject) to customize, "
+            "or pass --create-launcher=auto to auto-name from --project-dir.",
         ),
-    ] = False,
+    ] = None,
     project_dir: Annotated[
         str | None,
         typer.Option(
@@ -354,7 +357,7 @@ def create(
     # Auto-detect layout from --project-dir if provided
     project_dir_value = ctx.obj.get("project_dir") if ctx.obj else None
     detected_odoo_dir, detected_version, detected_addons_path = (
-        _detect_project_layout(project_dir_value) if project_dir_value else (None, None, None)
+        _detect_project_layout(project_dir_value, verbose=verbose) if project_dir_value else (None, None, None)
     )
 
     odoo_dir_path, odoo_version = _resolve_odoo_dir_and_version(
@@ -408,8 +411,23 @@ def create(
         skip_on_failure=skip_on_failure,
     )
 
-    if create_launcher_flag:
-        create_launcher(odoo_version, venv_dir_path, force=True)
+    if create_launcher is not None or project_dir_value:
+        # Determine launcher name: explicit value > project dir name > None (default odoo-vXX)
+        resolved_project_dir = str(Path(project_dir_value).expanduser().resolve()) if project_dir_value else None
+        launcher_name = None
+        if create_launcher and create_launcher != "auto":
+            launcher_name = create_launcher
+        elif resolved_project_dir:
+            launcher_name = Path(resolved_project_dir).name
+
+        create_launcher_script(
+            odoo_version,
+            venv_dir_path,
+            force=True,
+            project_dir=resolved_project_dir,
+            odoo_dir=str(odoo_dir_path),
+            name=launcher_name,
+        )
 
 
 def _is_uv_venv(venv_dir: Path) -> bool:
@@ -711,4 +729,4 @@ def create_odoo_launcher(
 ):
     """Generate a launcher script in ~/.local/bin/ for the Odoo environment"""
     venv_dir_path = Path(venv_dir).expanduser().resolve()
-    create_launcher(odoo_version, venv_dir_path, force=force)
+    create_launcher_script(odoo_version, venv_dir_path, force=force)
