@@ -345,6 +345,10 @@ def create(
             help="On failure, automatically open a GitHub issue with the full command and output.",
         ),
     ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Overwrite existing virtual environment."),
+    ] = False,
 ):
     """Create virtual environment to run Odoo"""
     if report_errors:
@@ -406,6 +410,7 @@ def create(
         extra_commands=extra_commands,
         verbose=verbose,
         skip_on_failure=skip_on_failure,
+        force=force,
     )
 
     if create_launcher_flag:
