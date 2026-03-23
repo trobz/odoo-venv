@@ -79,17 +79,70 @@ common configuration to all presets
 # on ubuntu 22.04/24.04, gevent fails to install with python 3.10
 # that we use for odoo 16.0, 17.0, 18.0, 19.0
 # see https://github.com/odoo/odoo/issues/187021
+#
+# pyldap is unmaintained and fails to build on OpenLDAP 2.5+ (libldap_r removed).
+# Odoo 13+ replaced it with python-ldap: https://github.com/odoo/odoo/issues/40069
+#
+# reportlab==3.3.0 (Odoo 12) has C extensions (_renderPM) that fail to build on modern systems.
+# Odoo 13 uses reportlab==3.5.13 which has a modernized build system.
+#
+# reportlab==3.5.59 (Odoo 16, python_version <= '3.10') has C extensions that fail to
+# compile on Python 3.10 due to removed PyUnicode_AsUnicode API. Odoo 16 already uses
+# reportlab==3.6.12 for python_version > '3.10', so we use that as the replacement.
+#
+# psycopg2 2.7.x uses Python 2's `basestring`, causing NameError on Python 3.
+# The 2.8.x line fixed this. Odoo 12 already pins 2.8.3 for python >= 3.8.
+#
+# pandas==0.13.1 (transitive dep of altair==4.0.1, used in Odoo 12) has invalid
+# PEP 440 metadata ("pytz >= 2011k") that modern setuptools rejects.
+# Pin pandas>=1.0.0 for Python 3.7 to get a buildable version.
+# pandas 1.3.5 is the last release supporting Python 3.7.
+#
+# pyopenssl<23.2.0 lacks upper bound on cryptography in its metadata. When an OCA addon
+# mentions cryptography (triggering auto-ignore of Odoo's cryptography pin), the latest
+# cryptography (41+) gets installed alongside old pyopenssl, causing:
+#   AttributeError: module 'lib' has no attribute 'X509_V_FLAG_NOTIFY_POLICY'
+# Odoo 15 pins pyopenssl==19.0.0 + cryptography==2.6.1,
+# Odoo 16 pins pyopenssl==20.0.1 + cryptography==3.4.8,
+# Odoo 17 pins pyopenssl==21.0.0 + cryptography==3.4.8.
+# All three must be replaced together — they are a tightly-coupled trio with urllib3.
+#
+# urllib3==1.26.5 (Odoo 15-17) uses cryptography.hazmat.backends.openssl.x509._Certificate,
+# an internal path removed in cryptography 42+. urllib3>=1.26.14 uses the public API instead.
+# We pin 1.26.14 as the earliest 1.26.x that avoids this import, and stays within
+# requests==2.25.1's requirement of urllib3>=1.21.1,<1.27.
+# NOTE: urllib3 replacement is in extra_commands (not extra_requirement) because it needs
+# odoo_version scoping — Odoo 12/13/14 pin requests<2.25 which requires urllib3<1.25.
 
 ignore_from_odoo_requirements = """
 gevent==21.8.0; sys_platform != 'win32' and python_version == '3.10',
 greenlet==1.1.2; sys_platform != 'win32' and python_version == '3.10',
 cbor2==5.4.2 ; python_version < '3.12',
-urllib3==1.26.5; python_version > '3.9' and python_version < '3.12'
+urllib3==1.26.5; python_version < '3.12',
+pyldap; sys_platform != 'win32',
+python-ldap==3.4.0 ; sys_platform != 'win32' and python_version < '3.12',
+reportlab==3.3.0; python_version < '3.8',
+reportlab==3.5.59; python_version == '3.10',
+psycopg2==2.7.3.1; sys_platform != 'win32' and python_version < '3.8',
+pyopenssl==19.0.0,
+pyopenssl==20.0.1,
+pyopenssl==21.0.0,
+cryptography<41.0.0
 """
+# python-ldap 3.4.0 fails on OpenLDAP 2.5+ (Arch, Fedora 36+, etc.)
+# because it hardcodes -lldap_r which was removed.
+# Bump to 3.4.2 which supports OpenLDAP 2.5+.
+# TMP: remove once https://github.com/odoo/odoo/pull/109217 is merged
 extra_requirement = """
 gevent==22.10.2; sys_platform == 'linux' and python_version == '3.10',
 greenlet==2.0.2; sys_platform == 'linux' and python_version == '3.10',
-urllib3==1.26.14; python_version > '3.9' and python_version < '3.12'
+python-ldap==3.4.2 ; sys_platform != 'win32' and python_version < '3.12',
+reportlab==3.5.13; python_version < '3.8',
+reportlab==3.6.12; python_version == '3.10',
+psycopg2==2.8.3; sys_platform != 'win32' and python_version < '3.8',
+pandas>=1.0.0; python_version < '3.8',
+pyopenssl>=24.0.0,
+cryptography>=41.0.5
 """
 
 # always ignore those exotic requirements unless explicitely added
@@ -117,6 +170,17 @@ command = ["uv", "pip", "install", "cbor2==5.4.3"]
 when = "odoo_version >= '18.0' and python_version == '3.10'"
 stage = "after_requirements"
 env = { UV_NO_BUILD_ISOLATION = "1" }
+
+# urllib3==1.26.5 (Odoo 14-17, python <3.12) is incompatible with cryptography 42+
+# (uses removed internal API). Replace with 1.26.14 which uses the public API.
+# Scoped to Odoo 15+ because:
+# - Odoo 12/13 don't pin urllib3 at all, and requests<2.25 requires urllib3<1.25
+# - Odoo 14 pins urllib3 only for python>3.9, but is not in the CI matrix for py3.10
+# Odoo 18+ ships urllib3 2.x on py3.12 and doesn't pin 1.26.x on py3.10.
+[[common.extra_commands]]
+command = ["uv", "pip", "install", "urllib3==1.26.14"]
+when = "odoo_version >= '15.0' and odoo_version < '18.0' and python_version < '3.12'"
+stage = "after_requirements"
 
 [local]
 

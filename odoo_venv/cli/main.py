@@ -16,14 +16,11 @@ from odoo_addons_path import (
     get_odoo_version_from_release,
 )
 
-from odoo_venv.exceptions import PresetNotFoundError
 from odoo_venv.launcher import create_launcher
 from odoo_venv.main import create_odoo_venv
-from odoo_venv.utils import initialize_presets, load_presets, run_migration, split_escaped
+from odoo_venv.utils import load_presets, split_escaped
 
 app = typer.Typer()
-initialize_presets()
-run_migration()
 # we use same python versions as OCA: https://github.com/oca/oca-ci/blob/master/.github/workflows/ci.yaml
 # with some adjustments based on our experience
 # we don't define a specific minor version here, but can be done via --python-version=
@@ -75,7 +72,7 @@ def preset_callback(ctx: typer.Context, param: typer.CallbackParam, value: str):
 
     all_presets = load_presets()
     if value not in all_presets:
-        raise PresetNotFoundError(value)
+        raise typer.BadParameter(f"Preset '{value}' not found.")  # noqa: TRY003
 
     _apply_preset(ctx, value, all_presets)
     ctx.ensure_object(dict)["explicit_preset"] = True
@@ -150,31 +147,35 @@ def _detect_project_layout(project_dir_value: str) -> tuple[Path | None, str | N
 
 def _resolve_odoo_dir_and_version(
     odoo_dir: str | None,
-    odoo_version: str | None,
     detected_odoo_dir: Path | None,
     detected_version: str | None,
 ) -> tuple[Path, str]:
-    """Determine odoo_dir and odoo_version from explicit args or detected values.
+    """Determine odoo_dir path and infer odoo_version from it.
 
-    Priority: explicit CLI flags > auto-detected from --project-dir > default path.
-    Exits with an error if neither can be resolved.
+    Priority for odoo_dir: explicit --odoo-dir flag > auto-detected from --project-dir.
+    The version is always inferred from the Odoo source (release.py).
+    Exits with an error if odoo_dir cannot be resolved or version cannot be detected.
     """
-    # Resolve odoo_dir: explicit flag > detected > default path from version
     if odoo_dir:
         odoo_dir_path = Path(odoo_dir).expanduser().resolve()
     elif detected_odoo_dir:
         odoo_dir_path = detected_odoo_dir
-    elif odoo_version:
-        odoo_dir_path = Path(f"~/code/odoo/odoo/{odoo_version}").expanduser()
     else:
-        typer.secho("error: ODOO_VERSION is required when --project-dir is not used.", fg=typer.colors.RED)
+        typer.secho("error: --odoo-dir is required when --project-dir is not used.", fg=typer.colors.RED)
         raise typer.Exit(1)
 
-    # Resolve odoo_version: explicit arg > detected from release.py
-    resolved_version = odoo_version or detected_version
+    # Infer version from the Odoo source directory
+    if odoo_dir and not detected_version:
+        # Explicit --odoo-dir was given but no version detected yet via --project-dir
+        resolved_version = get_odoo_version_from_release(odoo_dir_path)
+    else:
+        resolved_version = detected_version
+
     if not resolved_version:
         typer.secho(
-            "error: Could not detect Odoo version from source. Provide ODOO_VERSION explicitly.", fg=typer.colors.RED
+            "error: could not detect Odoo version from source. "
+            "Ensure the --odoo-dir path contains a valid Odoo installation.",
+            fg=typer.colors.RED,
         )
         raise typer.Exit(1)
 
@@ -242,9 +243,6 @@ def _run_with_error_reporting(argv: list[str]) -> None:
 @app.command()
 def create(
     ctx: typer.Context,
-    odoo_version: Annotated[
-        str | None, typer.Argument(help="Odoo version, e.g: 18.0. Inferred from --project-dir if omitted.")
-    ] = None,
     python_version: Annotated[
         str | None,
         typer.Option("--python-version", "-p", help="Specify Python version."),
@@ -351,15 +349,20 @@ def create(
         _run_with_error_reporting(sys.argv)
         return
 
+    # Apply 'common' preset by default when no explicit --preset or --project-dir
+    obj = ctx.ensure_object(dict)
+    if not obj.get("explicit_preset") and not obj.get("project_dir"):
+        all_presets = load_presets()
+        if "common" in all_presets:
+            _apply_preset(ctx, "common", all_presets, silent=True)
+
     # Auto-detect layout from --project-dir if provided
     project_dir_value = ctx.obj.get("project_dir") if ctx.obj else None
     detected_odoo_dir, detected_version, detected_addons_path = (
         _detect_project_layout(project_dir_value) if project_dir_value else (None, None, None)
     )
 
-    odoo_dir_path, odoo_version = _resolve_odoo_dir_and_version(
-        odoo_dir, odoo_version, detected_odoo_dir, detected_version
-    )
+    odoo_dir_path, odoo_version = _resolve_odoo_dir_and_version(odoo_dir, detected_odoo_dir, detected_version)
 
     if not python_version:
         python_version = ODOO_PYTHON_VERSIONS.get(odoo_version)

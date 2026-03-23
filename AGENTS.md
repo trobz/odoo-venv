@@ -19,16 +19,15 @@ odoo_venv/
 │   ├── __init__.py
 │   └── main.py          — CLI entry point (Typer app, commands: create, create-odoo-launcher)
 ├── assets/              — Bundled presets.toml and launcher.sh.template
-├── migrations/          — Version migration scripts (e.g., 1_0_0.py)
 ├── main.py              — Core logic: venv creation, requirement resolution, Odoo installation
-├── utils.py             — Preset loading/merging, migration runner, config paths
+├── utils.py             — Preset loading/merging, config paths
 ├── launcher.py          — Generates ~/.local/bin/odoo-vXX launcher scripts
-└── exceptions.py        — Custom exceptions (PresetNotFoundError)
+└── exceptions.py        — Custom exceptions
 ```
 
 ## Key Concepts
 
-- **Presets**: TOML-based option bundles stored at `~/.local/share/odoo-venv/presets.toml`; a `[common]` section merges into all other presets
+- **Presets**: TOML-based option bundles bundled with the tool; a `[common]` section merges into all other presets by default
 - **Extra commands**: Preset-defined shell commands that run at stages: `after_venv`, `after_requirements`, `after_odoo_install`; support `when` markers with `odoo_version` and PEP 508 expressions
 - **Requirement filtering**: Processes Odoo's `requirements.txt`, addons dirs, and manifest `external_dependencies`; supports ignoring specific packages via comma-separated lists
 

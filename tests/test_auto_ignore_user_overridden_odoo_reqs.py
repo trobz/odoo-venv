@@ -2,8 +2,6 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from odoo_venv.main import (
     create_odoo_venv,
 )
@@ -86,24 +84,58 @@ class TestDirectOverride:
 
 
 class TestTransitiveConflict:
-    """Packages in _KNOWN_TRANSITIVE_CONFLICTS trigger auto-ignore for their mapped Odoo pins."""
+    """Transitive conflicts are now handled dynamically by _validate_and_relax()
+    (via uv pip compile), not by a static dict.  These tests verify that
+    _validate_and_relax() is called during create_odoo_venv() and removes
+    conflicting BASE pins from the requirements file when uv reports a conflict.
+    """
 
-    @pytest.mark.parametrize(
-        "trigger_pkg, odoo_reqs, dropped_pin",
-        [
-            ("matplotlib", "pyparsing==2.1.0\n", "pyparsing==2.1.0"),
-            ("google-books-api-wrapper", "idna==2.10\n", "idna==2.10"),
-        ],
-        ids=["matplotlib_pyparsing", "google_books_idna"],
-    )
-    def test_transitive_pin_skipped(self, tmp_path, trigger_pkg, odoo_reqs, dropped_pin):
-        odoo_dir = _make_odoo_dir(tmp_path, odoo_reqs)
-        contents = _run_dry(tmp_path, odoo_dir, extra_requirements=[trigger_pkg])
-        assert dropped_pin not in contents
+    def test_base_pin_relaxed_on_compile_conflict(self, tmp_path):
+        """When uv pip compile reports a conflict with a BASE pin, it's removed."""
+        odoo_dir = _make_odoo_dir(tmp_path, "requests==2.21.0\n")
 
-    def test_skipped_only_when_in_base_pinned(self, tmp_path):
-        # Odoo doesn't pin pyparsing → nothing to skip, no error
+        captured = []
+        original_remove = __import__("os").remove
+
+        # subprocess.run is called multiple times during create_odoo_venv:
+        # 1. `uv python find` (python version check) — needs rc=0
+        # 2. _validate_and_relax compile attempt — fails with conflict
+        # 3. _validate_and_relax retry — succeeds
+        compile_results = iter([
+            MagicMock(returncode=0, stderr="", stdout=b""),  # uv python find
+            MagicMock(returncode=1, stderr="you require requests==2.21.0", stdout=""),  # compile fail
+            MagicMock(returncode=0, stderr="", stdout=""),  # compile pass
+        ])
+
+        def mock_subprocess_run(cmd, **kwargs):
+            return next(compile_results)
+
+        with (
+            patch("odoo_venv.main.os.remove", side_effect=lambda p: captured.append(p)),
+            patch("odoo_venv.main.subprocess.run", side_effect=mock_subprocess_run),
+            patch("odoo_venv.main._run_command"),
+        ):
+            create_odoo_venv(
+                odoo_version="12.0",
+                odoo_dir=odoo_dir,
+                venv_dir=tmp_path / ".venv",
+                python_version="3.7",
+                install_odoo=False,
+                install_odoo_requirements=True,
+                extra_requirements=["klaviyo-api"],
+            )
+
+        assert captured, "os.remove was never called — temp file was not created"
+        tmp_file = Path(captured[0])
+        contents = tmp_file.read_text(encoding="utf-8")
+        original_remove(str(tmp_file))
+        assert "requests==2.21.0" not in contents
+
+    def test_non_base_pin_not_relaxed(self, tmp_path):
+        """When compile succeeds (no conflict), all pins remain."""
         odoo_dir = _make_odoo_dir(tmp_path, "lxml==4.9.3\n")
+        # _run_dry already mocks subprocess.run with rc=0, so _validate_and_relax
+        # sees no conflict and doesn't modify the file.
         contents = _run_dry(tmp_path, odoo_dir, extra_requirements=["matplotlib"])
         assert "lxml==4.9.3" in contents
 

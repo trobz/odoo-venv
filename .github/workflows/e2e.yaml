@@ -123,13 +123,30 @@ jobs:
 
       - name: Create Odoo virtual environment
         run: |
-          odoo-venv create --verbose ${{ matrix.odoo_version }} \
+          odoo-venv create --verbose \
             --preset ci \
             --odoo-dir ~/code/odoo/odoo/${{ matrix.odoo_version }} \
             --venv-dir ~/code/venvs/${{ matrix.odoo_version }} \
             --python-version ${{ matrix.python_version }} \
             --create-launcher \
             --skip-on-failure
+
+      - name: Start PostgreSQL
+        run: sudo systemctl start postgresql
+
+      - name: Ensure DB user
+        run: tlc --yes ensure-db-user
+
+      - name: Smoke-test Odoo launcher
+        run: |
+          version="${{ matrix.odoo_version }}"
+          if [[ "$version" == "master" ]]; then
+            # master tracks a moving target (e.g. 19.3); read the real major from release.py
+            major=$(python3 -c "exec(open('$HOME/code/odoo/odoo/master/odoo/release.py').read()); print(version_info[0])")
+          else
+            major="${version%%.*}"
+          fi
+          odoo-v${major} --database="odoo_e2e_${version//./_}" --workers=2 --stop-after-init
 
   test-oca:
     name: With OCA modules | Odoo ${{ matrix.odoo_version }} (Python ${{ matrix.python_version }})
@@ -234,10 +251,22 @@ jobs:
       - name: Create Odoo virtual environment
         run: |
           addons_path=$(odoo-addons-path --addons-dir "~/code/oca/${{ matrix.odoo_version }}/*")
-          odoo-venv create --verbose ${{ matrix.odoo_version }} \
+          odoo-venv create --verbose \
             --preset ci \
             --odoo-dir ~/code/odoo/odoo/${{ matrix.odoo_version }} \
             --venv-dir ~/code/venvs/${{ matrix.odoo_version }} \
             --python-version ${{ matrix.python_version }} \
             --create-launcher \
             --addons-path=$addons_path
+
+      - name: Start PostgreSQL
+        run: sudo systemctl start postgresql
+
+      - name: Ensure DB user
+        run: tlc --yes ensure-db-user
+
+      - name: Smoke-test Odoo launcher
+        run: |
+          version="${{ matrix.odoo_version }}"
+          major="${version%%.*}"
+          odoo-v${major} --database="odoo_e2e_${version//./_}" --workers=2 --stop-after-init
