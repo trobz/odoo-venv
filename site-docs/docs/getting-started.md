@@ -35,4 +35,4 @@ For recurring configurations, it is recommended to utilize presets
 odoo-venv create 19.0 --odoo-dir ~/code/odoo/19.0 --preset local
 ```
 
-Define presets in `~/.local/share/odoo-venv/presets.toml`. The `[common]` section applies to all presets automatically.
+The `[common]` section applies to all presets automatically. Built-in presets are: local, demo, project, ci.
