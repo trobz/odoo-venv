@@ -148,31 +148,31 @@ def _detect_project_layout(project_dir_value: str) -> tuple[Path | None, str | N
 
 def _resolve_odoo_dir_and_version(
     odoo_dir: str | None,
-    odoo_version: str | None,
     detected_odoo_dir: Path | None,
     detected_version: str | None,
 ) -> tuple[Path, str]:
-    """Determine odoo_dir and odoo_version from explicit args or detected values.
+    """Determine odoo_dir path and infer odoo_version from it.
 
-    Priority: explicit CLI flags > auto-detected from --project-dir > default path.
-    Exits with an error if neither can be resolved.
+    Priority for odoo_dir: explicit --odoo-dir flag > auto-detected from --project-dir.
+    The version is always inferred from the Odoo source (release.py).
+    Exits with an error if odoo_dir cannot be resolved or version cannot be detected.
     """
-    # Resolve odoo_dir: explicit flag > detected > default path from version
     if odoo_dir:
         odoo_dir_path = Path(odoo_dir).expanduser().resolve()
     elif detected_odoo_dir:
         odoo_dir_path = detected_odoo_dir
-    elif odoo_version:
-        odoo_dir_path = Path(f"~/code/odoo/odoo/{odoo_version}").expanduser()
     else:
-        typer.secho("error: ODOO_VERSION is required when --project-dir is not used.", fg=typer.colors.RED)
+        typer.secho("error: --odoo-dir is required when --project-dir is not used.", fg=typer.colors.RED)
         raise typer.Exit(1)
 
-    # Resolve odoo_version: explicit arg > detected from release.py
-    resolved_version = odoo_version or detected_version
+    # Use detected version when available; otherwise infer from the resolved path
+    resolved_version = detected_version or get_odoo_version_from_release(odoo_dir_path)
+
     if not resolved_version:
         typer.secho(
-            "error: Could not detect Odoo version from source. Provide ODOO_VERSION explicitly.", fg=typer.colors.RED
+            "error: could not detect Odoo version from source. "
+            "Ensure the --odoo-dir path contains a valid Odoo installation.",
+            fg=typer.colors.RED,
         )
         raise typer.Exit(1)
 
@@ -240,9 +240,6 @@ def _run_with_error_reporting(argv: list[str]) -> None:
 @app.command()
 def create(
     ctx: typer.Context,
-    odoo_version: Annotated[
-        str | None, typer.Argument(help="Odoo version, e.g: 18.0. Inferred from --project-dir if omitted.")
-    ] = None,
     python_version: Annotated[
         str | None,
         typer.Option("--python-version", "-p", help="Specify Python version."),
@@ -362,9 +359,7 @@ def create(
         _detect_project_layout(project_dir_value) if project_dir_value else (None, None, None)
     )
 
-    odoo_dir_path, odoo_version = _resolve_odoo_dir_and_version(
-        odoo_dir, odoo_version, detected_odoo_dir, detected_version
-    )
+    odoo_dir_path, odoo_version = _resolve_odoo_dir_and_version(odoo_dir, detected_odoo_dir, detected_version)
 
     if not python_version:
         python_version = ODOO_PYTHON_VERSIONS.get(odoo_version)
