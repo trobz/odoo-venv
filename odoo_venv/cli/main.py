@@ -16,14 +16,11 @@ from odoo_addons_path import (
     get_odoo_version_from_release,
 )
 
-from odoo_venv.exceptions import PresetNotFoundError
 from odoo_venv.launcher import create_launcher
 from odoo_venv.main import create_odoo_venv
-from odoo_venv.utils import initialize_presets, load_presets, run_migration, split_escaped
+from odoo_venv.utils import load_presets, split_escaped
 
 app = typer.Typer()
-initialize_presets()
-run_migration()
 # we use same python versions as OCA: https://github.com/oca/oca-ci/blob/master/.github/workflows/ci.yaml
 # with some adjustments based on our experience
 # we don't define a specific minor version here, but can be done via --python-version=
@@ -75,7 +72,7 @@ def preset_callback(ctx: typer.Context, param: typer.CallbackParam, value: str):
 
     all_presets = load_presets()
     if value not in all_presets:
-        raise PresetNotFoundError(value)
+        raise typer.BadParameter(f"Preset '{value}' not found.")  # noqa: TRY003
 
     _apply_preset(ctx, value, all_presets)
     ctx.ensure_object(dict)["explicit_preset"] = True
@@ -350,6 +347,13 @@ def create(
     if report_errors:
         _run_with_error_reporting(sys.argv)
         return
+
+    # Apply 'common' preset by default when no explicit --preset or --project-dir
+    obj = ctx.ensure_object(dict)
+    if not obj.get("explicit_preset") and not obj.get("project_dir"):
+        all_presets = load_presets()
+        if "common" in all_presets:
+            _apply_preset(ctx, "common", all_presets, silent=True)
 
     # Auto-detect layout from --project-dir if provided
     project_dir_value = ctx.obj.get("project_dir") if ctx.obj else None
