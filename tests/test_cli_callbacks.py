@@ -7,6 +7,10 @@ from odoo_venv.utils import Preset
 
 # Two fake presets used throughout the tests
 FAKE_PRESETS = {
+    "common": Preset(
+        description="common preset",
+        extra_requirement="setuptools",
+    ),
     "local": Preset(
         description="local dev preset",
         extra_requirement="debugpy,ipython",
@@ -111,9 +115,39 @@ class TestExtraRequirementAdditive:
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
     @patch("odoo_venv.cli.main.create_odoo_venv")
     def test_extra_requirement_without_preset(self, mock_create, mock_detect, mock_load):
-        """--extra-requirement=mypkg (no preset): only CLI package."""
+        """--extra-requirement=mypkg (no preset): common + CLI package."""
         result = runner.invoke(app, [*_BASE_ARGS, "--extra-requirement", "mypkg"])
 
         assert result.exit_code == 0, result.output
         _, kwargs = mock_create.call_args
-        assert kwargs["extra_requirements"] == ["mypkg"]
+        # common preset is applied by default, so setuptools is included
+        assert "setuptools" in kwargs["extra_requirements"]
+        assert "mypkg" in kwargs["extra_requirements"]
+
+
+class TestDefaultCommonPreset:
+    """When no --preset and no --project-dir, common preset is applied by default."""
+
+    @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
+    @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
+    @patch("odoo_venv.cli.main.create_odoo_venv")
+    def test_no_preset_applies_common(self, mock_create, mock_detect, mock_load):
+        """No --preset and no --project-dir: common preset is applied."""
+        result = runner.invoke(app, [*_BASE_ARGS])
+
+        assert result.exit_code == 0, result.output
+        _, kwargs = mock_create.call_args
+        assert "setuptools" in kwargs["extra_requirements"]
+
+    @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
+    @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
+    @patch("odoo_venv.cli.main.create_odoo_venv")
+    def test_explicit_preset_skips_default_common(self, mock_create, mock_detect, mock_load):
+        """--preset local: common is already merged into local via load_presets, no double-apply."""
+        result = runner.invoke(app, [*_BASE_ARGS, "--preset", "local"])
+
+        assert result.exit_code == 0, result.output
+        _, kwargs = mock_create.call_args
+        # local preset's packages should be present (merged via load_presets)
+        assert "debugpy" in kwargs["extra_requirements"]
+        assert "ipython" in kwargs["extra_requirements"]
