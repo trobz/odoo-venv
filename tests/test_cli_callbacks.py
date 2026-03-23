@@ -26,7 +26,11 @@ FAKE_PRESETS = {
 
 runner = CliRunner()
 
-_BASE_ARGS = ["create", "17.0", "--odoo-dir", "/opt/odoo"]
+# --odoo-dir is required; version is inferred from it via get_odoo_version_from_release
+_BASE_ARGS = ["create", "--odoo-dir", "/opt/odoo"]
+
+# Shared mock: version inference from --odoo-dir always returns "17.0"
+_MOCK_VERSION = patch("odoo_venv.cli.main.get_odoo_version_from_release", return_value="17.0")
 
 
 class TestPresetOrdering:
@@ -36,10 +40,11 @@ class TestPresetOrdering:
     is_eager callbacks in the same order a real user invocation would.
     """
 
+    @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
     @patch("odoo_venv.cli.main.create_odoo_venv")
-    def test_preset_before_project_dir(self, mock_create, mock_detect, mock_load):
+    def test_preset_before_project_dir(self, mock_create, mock_detect, mock_load, mock_ver):
         """--preset local --project-dir /opt/project: preset fires first, project preset skipped."""
         result = runner.invoke(app, [*_BASE_ARGS, "--preset", "local", "--project-dir", "/opt/project"])
 
@@ -53,10 +58,11 @@ class TestPresetOrdering:
         # "project" preset packages must NOT appear (project was skipped)
         assert "pdfminer.six" not in kwargs["extra_requirements"]
 
+    @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
     @patch("odoo_venv.cli.main.create_odoo_venv")
-    def test_project_dir_before_preset(self, mock_create, mock_detect, mock_load):
+    def test_project_dir_before_preset(self, mock_create, mock_detect, mock_load, mock_ver):
         """--project-dir /opt/project --preset local: project-dir fires first but local wins."""
         result = runner.invoke(app, [*_BASE_ARGS, "--project-dir", "/opt/project", "--preset", "local"])
 
@@ -68,10 +74,11 @@ class TestPresetOrdering:
         assert "ipython" in kwargs["extra_requirements"]
         assert "pdfminer.six" not in kwargs["extra_requirements"]
 
+    @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
     @patch("odoo_venv.cli.main.create_odoo_venv")
-    def test_project_dir_without_preset(self, mock_create, mock_detect, mock_load):
+    def test_project_dir_without_preset(self, mock_create, mock_detect, mock_load, mock_ver):
         """--project-dir /opt/project (no --preset): "project" preset is auto-applied silently."""
         result = runner.invoke(app, [*_BASE_ARGS, "--project-dir", "/opt/project"])
 
@@ -85,10 +92,11 @@ class TestPresetOrdering:
 class TestExtraRequirementAdditive:
     """--extra-requirement must add to preset packages, not replace them."""
 
+    @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
     @patch("odoo_venv.cli.main.create_odoo_venv")
-    def test_extra_requirement_merges_with_preset(self, mock_create, mock_detect, mock_load):
+    def test_extra_requirement_merges_with_preset(self, mock_create, mock_detect, mock_load, mock_ver):
         """--preset local --extra-requirement=mypkg: final list = preset + CLI packages."""
         result = runner.invoke(app, [*_BASE_ARGS, "--preset", "local", "--extra-requirement", "mypkg"])
 
@@ -100,10 +108,11 @@ class TestExtraRequirementAdditive:
         assert "mypkg" in extra
         assert len(extra) == 3
 
+    @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
     @patch("odoo_venv.cli.main.create_odoo_venv")
-    def test_no_extra_requirement_uses_preset_only(self, mock_create, mock_detect, mock_load):
+    def test_no_extra_requirement_uses_preset_only(self, mock_create, mock_detect, mock_load, mock_ver):
         """--preset local (no --extra-requirement): only preset packages."""
         result = runner.invoke(app, [*_BASE_ARGS, "--preset", "local"])
 
@@ -111,10 +120,11 @@ class TestExtraRequirementAdditive:
         _, kwargs = mock_create.call_args
         assert kwargs["extra_requirements"] == ["debugpy", "ipython"]
 
+    @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
     @patch("odoo_venv.cli.main.create_odoo_venv")
-    def test_extra_requirement_without_preset(self, mock_create, mock_detect, mock_load):
+    def test_extra_requirement_without_preset(self, mock_create, mock_detect, mock_load, mock_ver):
         """--extra-requirement=mypkg (no preset): common + CLI package."""
         result = runner.invoke(app, [*_BASE_ARGS, "--extra-requirement", "mypkg"])
 
@@ -128,10 +138,11 @@ class TestExtraRequirementAdditive:
 class TestDefaultCommonPreset:
     """When no --preset and no --project-dir, common preset is applied by default."""
 
+    @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
     @patch("odoo_venv.cli.main.create_odoo_venv")
-    def test_no_preset_applies_common(self, mock_create, mock_detect, mock_load):
+    def test_no_preset_applies_common(self, mock_create, mock_detect, mock_load, mock_ver):
         """No --preset and no --project-dir: common preset is applied."""
         result = runner.invoke(app, [*_BASE_ARGS])
 
@@ -139,10 +150,11 @@ class TestDefaultCommonPreset:
         _, kwargs = mock_create.call_args
         assert "setuptools" in kwargs["extra_requirements"]
 
+    @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
     @patch("odoo_venv.cli.main.create_odoo_venv")
-    def test_explicit_preset_skips_default_common(self, mock_create, mock_detect, mock_load):
+    def test_explicit_preset_skips_default_common(self, mock_create, mock_detect, mock_load, mock_ver):
         """--preset local: common is already merged into local via load_presets, no double-apply."""
         result = runner.invoke(app, [*_BASE_ARGS, "--preset", "local"])
 
