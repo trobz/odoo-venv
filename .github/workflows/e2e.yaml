@@ -131,6 +131,18 @@ jobs:
             --create-launcher \
             --skip-on-failure
 
+      - name: Start PostgreSQL
+        run: sudo systemctl start postgresql
+
+      - name: Ensure DB user
+        run: tlc --yes ensure-db-user
+
+      - name: Smoke-test Odoo launcher
+        run: |
+          version="${{ matrix.odoo_version }}"
+          major="${version%%.*}"
+          odoo-v${major} --workers=2 --stop-after-init
+
   test-oca:
     name: With OCA modules | Odoo ${{ matrix.odoo_version }} (Python ${{ matrix.python_version }})
     needs: test-native
@@ -241,3 +253,15 @@ jobs:
             --python-version ${{ matrix.python_version }} \
             --create-launcher \
             --addons-path=$addons_path
+
+      - name: Start PostgreSQL
+        run: sudo systemctl start postgresql
+
+      - name: Ensure DB user
+        run: tlc --yes ensure-db-user
+
+      - name: Smoke-test Odoo launcher
+        run: |
+          version="${{ matrix.odoo_version }}"
+          major="${version%%.*}"
+          odoo-v${major} --workers=2 --stop-after-init
