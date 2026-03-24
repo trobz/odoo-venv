@@ -409,7 +409,7 @@ def create(
     )
 
     if create_launcher_flag:
-        create_launcher(odoo_version, venv_dir_path, force=True)
+        create_launcher(odoo_version, venv_dir_path, odoo_dir=odoo_dir_path, force=True)
 
 
 def _is_uv_venv(venv_dir: Path) -> bool:
@@ -705,10 +705,14 @@ def compare(
 
 @app.command()
 def create_odoo_launcher(
-    odoo_version: Annotated[str, typer.Argument(help="Odoo version, e.g: 19.0")],
+    odoo_version: Annotated[str, typer.Argument(help="Odoo version, e.g: 19.0 or master")],
     venv_dir: Annotated[str, typer.Option(help="Path to the virtual environment.")],
+    odoo_dir: Annotated[
+        str | None, typer.Option(help="Path to Odoo source (required for non-numeric versions like 'master').")
+    ] = None,
     force: Annotated[bool, typer.Option(help="Overwrite existing launcher script.")] = False,
 ):
     """Generate a launcher script in ~/.local/bin/ for the Odoo environment"""
     venv_dir_path = Path(venv_dir).expanduser().resolve()
-    create_launcher(odoo_version, venv_dir_path, force=force)
+    odoo_dir_path = Path(odoo_dir).expanduser().resolve() if odoo_dir else None
+    create_launcher(odoo_version, venv_dir_path, odoo_dir=odoo_dir_path, force=force)
