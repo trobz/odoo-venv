@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.13.0 (2026-03-24)
+
+### Features
+
+- **e2e**: Add launcher smoke test to catch runtime dependency errors
+  ([`8147c30`](https://github.com/trobz/odoo-venv/commit/8147c30d9dc025b4536d59d707019bb621193301))
+
+
 ## v1.12.0 (2026-03-19)
 
 ### Features
