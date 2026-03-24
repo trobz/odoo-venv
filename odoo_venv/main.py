@@ -7,6 +7,8 @@ import sys
 import tempfile
 from collections import defaultdict
 from collections.abc import Callable
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
 import typer
@@ -14,7 +16,52 @@ from packaging.markers import Marker, default_environment
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.version import parse as parse_version
 
+
+class ReqSource(Enum):
+    """Where a requirement came from — determines priority during conflict resolution.
+
+    BASE: Odoo's own requirements.txt (lowest priority in conflicts)
+    ADDON: OCA addons dir requirements.txt or manifest external_dependencies
+    PRESET: User's extra_requirement / extra_requirements_file (highest priority)
+    """
+
+    BASE = "base"
+    ADDON = "addon"
+    PRESET = "preset"
+
+
+@dataclass
+class TaggedRequirement:
+    """A requirement line paired with its source type and origin file.
+
+    Attributes:
+        raw_line: The original requirement string (e.g. "python-stdnum==1.8")
+        requirement: Parsed Requirement object, or None if line couldn't be parsed
+        source: Which category this requirement came from
+        origin: Human-readable origin (e.g. "odoo/requirements.txt", "web/__manifest__.py")
+    """
+
+    raw_line: str
+    requirement: Requirement | None
+    source: ReqSource
+    origin: str
+
+
 PKG_NAME_PATTERN = re.compile(r"(?P<lib_name>[a-z0-9A-Z\-\_\.]+)((>|<|=)=)?(.*)")
+
+
+def _normalize_pkg_name(line: str) -> str:
+    """Extract and normalise a package name from a requirement line.
+
+    >>> _normalize_pkg_name("python-ldap>=3.0")
+    'python-ldap'
+    >>> _normalize_pkg_name("PyYAML")
+    'pyyaml'
+    """
+    match = PKG_NAME_PATTERN.match(line.strip())
+    name = match.group("lib_name") if match else line.strip()
+    return re.sub(r"[-_.]", "-", name.lower())
+
 
 VALID_STAGES = {"after_venv", "after_requirements", "after_odoo_install"}
 
@@ -285,41 +332,17 @@ def _collect_mentioned_packages(req_lines: list[str], target_env: dict[str, str]
     return result
 
 
-# Packages whose presence in a user source implies that certain Odoo-pinned packages must
-# be ignored, because the listed package has a known transitive dependency that requires a
-# higher version than Odoo pins.
-# Format: { user_package: [odoo_pinned_packages_to_ignore] }
-_KNOWN_TRANSITIVE_CONFLICTS: dict[str, list[str]] = {
-    # matplotlib>=3.4 depends on pyparsing>=2.2.1, which conflicts with Odoo's older pin
-    "matplotlib": ["pyparsing"],
-    # google-books-api-wrapper depends on requests>=2.28 which depends on idna>=2.5,
-    # conflicting with Odoo's older idna pin
-    "google-books-api-wrapper": ["idna"],
-    # pandas>=1.0 depends on python-dateutil>=2.7.3 and pytz>=2017.3, which conflict
-    # with Odoo<=13's python-dateutil==2.5.3 and pytz==2016.7 pins.
-    "pandas": ["python-dateutil", "pytz"],
-    # altair depends on pandas (transitive — not found by user-source scan)
-    "altair": ["python-dateutil", "pytz"],
-    # All klaviyo-api versions require requests>=2.26.0, which conflicts with Odoo<=13's
-    # requests==2.20.0 pin.  No compatible klaviyo-api version exists without relaxing it.
-    "klaviyo-api": ["requests"],
-}
-
-
-def _scan_user_sources(
+def _scan_extra_sources(
     collector_fn: Callable[[list[str], dict[str, str]], set[str]],
     extra_requirements: list[str] | None,
     extra_requirements_file: str | None,
-    install_addons_dirs_requirements: bool,
-    addons_paths: list[str] | None,
-    manifest_files: list[Path],
-    parsed_manifests: dict[Path, dict],
     target_env: dict[str, str],
 ) -> set[str]:
-    """Scan all user requirement sources using the given collector function.
+    """Scan only extra_requirements and extra_requirements_file.
 
-    Iterates over extra_requirements, extra_requirements_file, addons dirs,
-    and manifest files — collecting package names via *collector_fn*.
+    Used by auto-ignore logic to detect packages that the user/preset explicitly
+    overrides.  Addons dirs and manifests are excluded because they are installation
+    targets, not overrides.
     """
     result: set[str] = set()
 
@@ -330,18 +353,6 @@ def _scan_user_sources(
         path = Path(extra_requirements_file).expanduser().resolve()
         if path.exists():
             result |= collector_fn(path.read_text(encoding="utf-8").splitlines(), target_env)
-
-    if install_addons_dirs_requirements and addons_paths:
-        for p in addons_paths:
-            req_file = Path(p) / "requirements.txt"
-            if req_file.exists():
-                result |= collector_fn(req_file.read_text(encoding="utf-8").splitlines(), target_env)
-
-    # manifest_files is already empty when install_addons_manifests_requirements is False
-    for mf in manifest_files:
-        ext_deps = parsed_manifests[mf].get("external_dependencies", {})
-        if isinstance(ext_deps.get("python"), list):
-            result |= collector_fn(ext_deps["python"], target_env)
 
     return result
 
@@ -358,6 +369,321 @@ def _keep_if_marker_matches(req_line: str, env: dict | None = None) -> str | Non
     # extras = f"[{','.join(sorted(req.extras))}]" if req.extras else ""
     spec = str(req.specifier)  # e.g. "==22.10.2"
     return f"{req.name}{spec}"
+
+
+def _is_ignored(req_name: str, req: Requirement | None, ignored_req_map: dict) -> bool:
+    """Check if a requirement should be ignored based on the ignored_req_map."""
+    req_name_normalized = re.sub(r"[-_.]", "-", req_name.lower())
+    if req_name_normalized not in ignored_req_map:
+        return False
+    if req is None:
+        # Unparseable line — ignore if the bare name matches
+        return True
+    for ignored_req in ignored_req_map[req_name_normalized]:
+        if not ignored_req.specifier or (req.specifier and (req.specifier & ignored_req.specifier) == req.specifier):
+            return True
+    return False
+
+
+def _parse_req_line(
+    raw_line: str,
+    target_env: dict[str, str],
+) -> tuple[str | None, Requirement | None]:
+    """Parse a requirement line, applying marker filtering.
+
+    Returns (clean_line, parsed_req) or (None, None) if the line should be skipped.
+    For InvalidRequirement lines, returns (raw_line, None) so they pass through.
+    """
+    line = raw_line.strip()
+    if not line or line.startswith("#"):
+        return None, None
+
+    try:
+        valid_line = _keep_if_marker_matches(line, env=target_env)
+        if not valid_line:
+            return None, None
+        return valid_line, Requirement(valid_line)
+    except InvalidRequirement:
+        # Can't parse — pass through raw (e.g. URL-based requirements)
+        return line, None
+
+
+def _tag_and_add(
+    req_map: dict[str, list[TaggedRequirement]],
+    raw_line: str,
+    req: Requirement | None,
+    source: ReqSource,
+    origin: str,
+    ignored_req_map: dict,
+):
+    """Add a tagged requirement to the map, skipping ignored packages.
+
+    PRESET entries are never filtered — they represent explicit user/preset overrides
+    and must always pass through (the old code passed ignored_req_map={} for them).
+    """
+    if req is not None:
+        pkg_key = re.sub(r"[-_.]", "-", req.name.lower())
+        if source != ReqSource.PRESET and _is_ignored(req.name, req, ignored_req_map):
+            return
+    else:
+        match = PKG_NAME_PATTERN.match(raw_line)
+        if match:
+            pkg_key = re.sub(r"[-_.]", "-", match.group("lib_name").lower())
+            if source != ReqSource.PRESET and pkg_key in ignored_req_map:
+                return
+        else:
+            pkg_key = raw_line.strip().lower()
+
+    req_map[pkg_key].append(TaggedRequirement(raw_line=raw_line, requirement=req, source=source, origin=origin))
+
+
+def _collect_from_files(
+    req_map: dict[str, list[TaggedRequirement]],
+    files: list[Path],
+    source: ReqSource,
+    ignored_req_map: dict,
+    target_env: dict[str, str],
+):
+    """Collect requirements from requirement files into the map."""
+    for req_file in files:
+        with open(req_file, encoding="utf-8") as f:
+            for line in f:
+                clean, req = _parse_req_line(line, target_env)
+                if clean is not None:
+                    _tag_and_add(req_map, clean, req, source, str(req_file), ignored_req_map)
+
+
+def _collect_manifest_deps(
+    manifest_files: list[Path],
+    parsed_manifests: dict[Path, dict],
+    req_map: dict[str, list[TaggedRequirement]],
+    known_packages: set[str],
+    ignored_req_map: dict,
+    target_env: dict[str, str],
+) -> list[str]:
+    """Collect manifest external_dependencies, splitting overlapping vs manifest-only.
+
+    Deps already in req_map (from req files/presets) are added to the main map
+    for conflict resolution. Deps only in manifests are returned for best-effort install.
+    """
+    manifest_only_deps: list[str] = []
+    for mf in manifest_files:
+        ext_deps = parsed_manifests[mf].get("external_dependencies", {})
+        if not isinstance(ext_deps.get("python"), list):
+            continue
+        for dep in ext_deps["python"]:
+            resolved_dep = _resolve_manifest_dep(dep)
+            clean, req = _parse_req_line(resolved_dep, target_env)
+            if clean is None:
+                continue
+            # Determine normalised key and check if ignored
+            if req is not None:
+                pkg_key = re.sub(r"[-_.]", "-", req.name.lower())
+                if _is_ignored(req.name, req, ignored_req_map):
+                    continue
+            else:
+                match = PKG_NAME_PATTERN.match(clean)
+                pkg_key = re.sub(r"[-_.]", "-", match.group("lib_name").lower()) if match else clean.strip().lower()
+                if pkg_key in ignored_req_map:
+                    continue
+
+            if pkg_key in known_packages:
+                _tag_and_add(req_map, clean, req, ReqSource.ADDON, str(mf), ignored_req_map)
+            else:
+                manifest_only_deps.append(clean)
+    return manifest_only_deps
+
+
+def _collect_all_requirements(
+    base_req_files: list[Path],
+    addons_req_files: list[Path],
+    extra_requirements: list[str] | None,
+    extra_requirements_file: str | None,
+    manifest_files: list[Path],
+    parsed_manifests: dict[Path, dict],
+    ignored_req_map: dict,
+    target_env: dict[str, str],
+) -> tuple[dict[str, list[TaggedRequirement]], list[str]]:
+    """Collect all requirements from every source into a map keyed by normalised package name.
+
+    Sources are tagged so conflict resolution can apply priority rules:
+    - BASE: Odoo's requirements.txt
+    - ADDON: OCA addons dir requirements.txt + manifest external_dependencies
+    - PRESET: extra_requirements / extra_requirements_file
+
+    Manifest deps that don't overlap with any req file are returned separately
+    in ``manifest_only_deps`` — they'll be installed best-effort (one-by-one,
+    skipping failures) since they may need system C libraries.
+
+    Returns:
+        (req_map, manifest_only_deps)
+    """
+    req_map: dict[str, list[TaggedRequirement]] = defaultdict(list)
+
+    # 1. Odoo's own requirements.txt (BASE)
+    _collect_from_files(req_map, base_req_files, ReqSource.BASE, ignored_req_map, target_env)
+
+    # 2. OCA addons dir requirements.txt (ADDON — OCA-maintained, not Odoo core)
+    _collect_from_files(req_map, addons_req_files, ReqSource.ADDON, ignored_req_map, target_env)
+
+    # 3. Preset extra_requirements (PRESET)
+    if extra_requirements:
+        for req_line in extra_requirements:
+            clean, req = _parse_req_line(req_line, target_env)
+            if clean is not None:
+                _tag_and_add(req_map, clean, req, ReqSource.PRESET, "extra_requirements", ignored_req_map)
+
+    # 4. Preset extra_requirements_file (PRESET)
+    if extra_requirements_file:
+        extra_req_path = Path(extra_requirements_file).expanduser().resolve()
+        if extra_req_path.exists():
+            _collect_from_files(req_map, [extra_req_path], ReqSource.PRESET, ignored_req_map, target_env)
+
+    # 5. Split manifest deps: overlapping ones go to req_map, rest to manifest_only
+    known_packages = set(req_map.keys())
+    manifest_only_deps = _collect_manifest_deps(
+        manifest_files,
+        parsed_manifests,
+        req_map,
+        known_packages,
+        ignored_req_map,
+        target_env,
+    )
+
+    return dict(req_map), manifest_only_deps
+
+
+def _specifiers_conflict(a: Requirement, b: Requirement) -> bool:
+    """Return True if no version can satisfy both a and b simultaneously.
+
+    Handles common cases:
+    - ==X vs ==Y (different exact pins)
+    - ==X vs >=Y (exact pin doesn't satisfy range)
+    - Two ranges with empty intersection
+
+    Returns False (no conflict) when either requirement has no specifier,
+    since bare names are compatible with anything.
+
+    >>> _specifiers_conflict(Requirement("pkg==1.8"), Requirement("pkg>=1.16"))
+    True
+    >>> _specifiers_conflict(Requirement("pkg==2.20.0"), Requirement("pkg==2.21.0"))
+    True
+    >>> _specifiers_conflict(Requirement("pkg>=1.0"), Requirement("pkg>=2.0"))
+    False
+    >>> _specifiers_conflict(Requirement("pkg==1.8"), Requirement("pkg>=1.0,<2.0"))
+    False
+    >>> _specifiers_conflict(Requirement("pkg"), Requirement("pkg==1.0"))
+    False
+    """
+    if not a.specifier or not b.specifier:
+        return False
+
+    # Extract exact pins if present (e.g. ==1.8 → "1.8")
+    a_exact = _get_exact_pin(a)
+    b_exact = _get_exact_pin(b)
+
+    # Case 1: Both are exact pins — conflict if different versions
+    if a_exact is not None and b_exact is not None:
+        return a_exact != b_exact
+
+    # Case 2: One is exact, other is a range — check if exact satisfies range
+    if a_exact is not None:
+        return not b.specifier.contains(a_exact)
+    if b_exact is not None:
+        return not a.specifier.contains(b_exact)
+
+    # Case 3: Both are ranges — conservatively assume compatible
+    # (full range intersection is complex; the common CI failures are exact-vs-range)
+    return False
+
+
+def _get_exact_pin(req: Requirement) -> str | None:
+    """Extract the pinned version from a requirement like 'pkg==1.8'.
+
+    Returns None if the requirement has no == specifier or has multiple specifiers
+    beyond just ==.
+
+    >>> _get_exact_pin(Requirement("pkg==1.8"))
+    '1.8'
+    >>> _get_exact_pin(Requirement("pkg>=1.0")) is None
+    True
+    >>> _get_exact_pin(Requirement("pkg")) is None
+    True
+    """
+    specs = list(req.specifier)
+    if len(specs) == 1 and specs[0].operator == "==":
+        return specs[0].version
+    return None
+
+
+def _add_unique(resolved: list[str], seen: set[str], entries: list[TaggedRequirement]):
+    """Append raw_lines from entries to resolved, deduplicating via seen set."""
+    for e in entries:
+        if e.raw_line not in seen:
+            resolved.append(e.raw_line)
+            seen.add(e.raw_line)
+
+
+def _detect_base_addon_conflict(
+    base_entries: list[TaggedRequirement],
+    addon_entries: list[TaggedRequirement],
+    verbose: bool,
+) -> bool:
+    """Check if any base entry conflicts with any addon entry. Warn if verbose."""
+    for base_e in base_entries:
+        for addon_e in addon_entries:
+            if (
+                base_e.requirement
+                and addon_e.requirement
+                and _specifiers_conflict(base_e.requirement, addon_e.requirement)
+            ):
+                if verbose:
+                    typer.secho(
+                        f"  ⚠  Relaxed Odoo's '{base_e.raw_line}' pin (OCA addon requires {addon_e.raw_line})",
+                        fg=typer.colors.YELLOW,
+                    )
+                return True
+    return False
+
+
+def _resolve_conflicts(
+    req_map: dict[str, list[TaggedRequirement]],
+    verbose: bool = False,
+) -> list[str]:
+    """Resolve version conflicts and return final requirement lines.
+
+    Priority rules:
+    1. PRESET with version specifier wins — drop all BASE/ADDON entries for that package
+    2. ADDON vs BASE conflict — drop the BASE entry, keep ADDON, warn
+    3. No conflict — keep all (deduplicate identical lines)
+    """
+    resolved: list[str] = []
+    seen: set[str] = set()
+
+    for _pkg_name, entries in req_map.items():
+        sources = {e.source for e in entries}
+
+        # Rule 1: Versioned preset wins. Bare preset (no specifier) doesn't override.
+        preset_entries = [e for e in entries if e.source == ReqSource.PRESET]
+        if any(e.requirement and e.requirement.specifier for e in preset_entries):
+            _add_unique(resolved, seen, preset_entries)
+            continue
+
+        # Single source type — no conflict possible
+        if len(sources) == 1:
+            _add_unique(resolved, seen, entries)
+            continue
+
+        # Rule 2: Mixed ADDON/BASE — check for version conflicts
+        base_entries = [e for e in entries if e.source == ReqSource.BASE]
+        addon_entries = [e for e in entries if e.source == ReqSource.ADDON]
+
+        if base_entries and addon_entries and _detect_base_addon_conflict(base_entries, addon_entries, verbose):
+            _add_unique(resolved, seen, addon_entries)
+        else:
+            _add_unique(resolved, seen, entries)
+
+    return resolved
 
 
 def _run_command(
@@ -518,6 +844,109 @@ def _install_requirements_with_retry(
             return skipped
 
     return skipped  # unreachable, satisfies type checker
+
+
+def _install_manifest_deps_best_effort(
+    deps: list[str],
+    venv_dir: Path,
+    verbose: bool,
+) -> list[str]:
+    """Install manifest-only deps one-by-one, skipping failures.
+
+    Manifest deps may require system C libraries (e.g. python-ldap, pymssql).
+    Installing them individually means one failure doesn't block the rest.
+
+    Returns list of deps that failed to install.
+    """
+    skipped: list[str] = []
+    for dep in deps:
+        try:
+            _run_command(
+                ["uv", "pip", "install", dep],
+                venv_dir=venv_dir,
+                verbose=False,
+                raise_on_error=True,
+                extra_env={"UV_PRERELEASE": "allow"},
+            )
+        except subprocess.CalledProcessError:
+            skipped.append(dep)
+            typer.secho(
+                f"  ⚠  '{dep}' failed to install (may need system libraries) — skipping",
+                fg=typer.colors.YELLOW,
+            )
+    return skipped
+
+
+# Pattern to extract the conflicting pin from uv pip compile's error output.
+# Uses \s+ between "you" and "require" because uv wraps long lines, e.g.:
+#   "and you\n      require pyparsing==2.2.0, we can conclude ..."
+# Version is [\w.]+ (not \S+) to avoid capturing trailing commas/punctuation.
+_UV_CONFLICT_PATTERN = re.compile(r"you\s+require\s+(\S+)==([\w.]+)")
+
+
+def _validate_and_relax(
+    req_file_path: str,
+    python_version: str | None,
+    base_pins: set[str],
+    verbose: bool = False,
+    max_retries: int = 5,
+) -> set[str]:
+    """Validate requirements via uv pip compile, relaxing base pins on transitive conflict.
+
+    Runs ``uv pip compile`` to resolve the full dependency tree.  If it fails
+    due to a version conflict involving a BASE-sourced pin, removes that pin
+    from the requirements file and retries.
+
+    Returns:
+        Set of normalised package names whose base pins were removed.
+    """
+    relaxed: set[str] = set()
+
+    for _attempt in range(max_retries):
+        cmd = ["uv", "pip", "compile", req_file_path, "--quiet"]
+        if python_version:
+            cmd += ["--python", python_version]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)  # noqa: S603
+        if result.returncode == 0:
+            return relaxed  # requirements are solvable
+
+        match = _UV_CONFLICT_PATTERN.search(result.stderr)
+        if not match:
+            break  # can't parse error — fall through to normal install
+
+        pkg_raw, pin_version = match.group(1), match.group(2)
+        pkg_normalized = re.sub(r"[-_.]", "-", pkg_raw.lower())
+
+        if pkg_normalized not in base_pins:
+            break  # not a base pin — can't auto-relax
+
+        # Remove the conflicting line from the requirements file
+        with open(req_file_path, encoding="utf-8") as f:
+            lines = f.readlines()
+        filtered = []
+        for line in lines:
+            line_pkg = line.strip().split("#")[0].strip()
+            if not line_pkg:
+                filtered.append(line)
+                continue
+            try:
+                line_normalized = re.sub(r"[-_.]", "-", Requirement(line_pkg).name.lower())
+            except InvalidRequirement:
+                line_match = PKG_NAME_PATTERN.match(line_pkg)
+                line_normalized = re.sub(r"[-_.]", "-", line_match.group("lib_name").lower()) if line_match else None
+            if line_normalized != pkg_normalized:
+                filtered.append(line)
+        with open(req_file_path, "w", encoding="utf-8") as f:
+            f.writelines(filtered)
+
+        relaxed.add(pkg_normalized)
+        typer.secho(
+            f"  ⚠  Relaxed Odoo's '{pkg_raw}=={pin_version}' pin (transitive conflict detected by uv)",
+            fg=typer.colors.YELLOW,
+        )
+
+    return relaxed
 
 
 # Packages that cannot be installed in an isolated build environment (they rely on
@@ -725,17 +1154,24 @@ def create_odoo_venv(  # noqa: C901
     )
 
     # 3. Process requirements
-    all_req_files = []
+    # Separate Odoo's own requirements (BASE) from OCA addons dir requirements (ADDON).
+    # Addons dir requirements.txt are OCA-maintained, so on conflict they take priority
+    # over Odoo's pins — hence they are classified as ADDON, not BASE.
+    odoo_req_files: list[Path] = []
+    addons_req_files: list[Path] = []
     if install_odoo_requirements:
         odoo_reqs_file = odoo_dir / "requirements.txt"
         if odoo_reqs_file.exists():
-            all_req_files.append(odoo_reqs_file)
+            odoo_req_files.append(odoo_reqs_file)
 
     if install_addons_dirs_requirements and addons_paths:
         for path in addons_paths:
             addons_req_file = Path(path) / "requirements.txt"
             if addons_req_file.exists():
-                all_req_files.append(addons_req_file)
+                addons_req_files.append(addons_req_file)
+
+    # Combined list for backwards compat with base_pinned scanning and NBI detection
+    all_req_files = odoo_req_files + addons_req_files
 
     ignore_req_lines = []
     if ignore_from_odoo_requirements:
@@ -778,20 +1214,18 @@ def create_odoo_venv(  # noqa: C901
             req_file.read_text(encoding="utf-8").splitlines(), target_env_for_markers
         )
 
-    scan_args = (
-        extra_requirements,
-        extra_requirements_file,
-        install_addons_dirs_requirements,
-        addons_paths,
-        manifest_files,
-        parsed_manifests,
-        target_env_for_markers,
-    )
-
     # Pre-scan user sources for packages with version specifiers.
     # When a user source pins/constrains a package that Odoo also pins, Odoo's stricter
     # pin is skipped automatically so the user's version wins without an explicit ignore entry.
-    user_constrained = _scan_user_sources(_collect_constrained_packages, *scan_args)
+    #
+    # Only extra_requirements and extra_requirements_file are considered "override sources"
+    # for auto-ignore.  Addons dirs requirements.txt and manifests are NOT — they are
+    # targets of installation, not overrides.  Including them causes a bug where a package
+    # like bokeh (present in both an addons dir requirements.txt and its manifest) gets
+    # auto-ignored from base_pinned, which then also drops it from the manifest install.
+    user_constrained = _scan_extra_sources(
+        _collect_constrained_packages, extra_requirements, extra_requirements_file, target_env_for_markers
+    )
     for pkg_name in user_constrained & base_pinned:
         if not any(not r.specifier for r in ignored_req_map[pkg_name]):
             ignored_req_map[pkg_name].append(Requirement(pkg_name))
@@ -800,22 +1234,6 @@ def create_odoo_venv(  # noqa: C901
                     f"  i  Auto-ignoring Odoo's '{pkg_name}' pin (overridden by user requirement)",
                     fg=typer.colors.CYAN,
                 )
-
-    # Collect all mentioned packages (regardless of specifier) to resolve known transitive
-    # conflicts — e.g. matplotlib (even without a version pin) implies pyparsing must not
-    # be constrained by Odoo's pin, because matplotlib depends on a higher version.
-    user_mentioned = _scan_user_sources(_collect_mentioned_packages, *scan_args)
-    for pkg_name in user_mentioned:
-        for transitive in _KNOWN_TRANSITIVE_CONFLICTS.get(pkg_name, []):
-            if transitive not in base_pinned:
-                continue
-            if not any(not r.specifier for r in ignored_req_map[transitive]):
-                ignored_req_map[transitive].append(Requirement(transitive))
-                if verbose:
-                    typer.secho(
-                        f"  i  Auto-ignoring Odoo's '{transitive}' pin (transitively required by '{pkg_name}')",
-                        fg=typer.colors.CYAN,
-                    )
 
     # Detect packages that require --no-build-isolation from all requirement sources.
     # They are excluded from the batch install and installed separately afterwards.
@@ -845,43 +1263,45 @@ def create_odoo_venv(  # noqa: C901
                 fg=typer.colors.CYAN,
             )
 
+    # Collect → Resolve → Write pipeline
+    req_map, manifest_only_deps = _collect_all_requirements(
+        base_req_files=odoo_req_files,
+        addons_req_files=addons_req_files,
+        extra_requirements=extra_requirements,
+        extra_requirements_file=extra_requirements_file,
+        manifest_files=manifest_files,
+        parsed_manifests=parsed_manifests,
+        ignored_req_map=ignored_req_map,
+        target_env=target_env_for_markers,
+    )
+
+    # Resolve conflicts (Phase 2 — priority: PRESET > ADDON > BASE)
+    resolved_lines = _resolve_conflicts(req_map, verbose=verbose)
+
+    # Collect BASE-sourced package names so _validate_and_relax() knows which pins are safe to drop
+    base_pin_names = {
+        re.sub(r"[-_.]", "-", pkg.lower())
+        for pkg, entries in req_map.items()
+        if any(e.source == ReqSource.BASE for e in entries)
+    }
+
     with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt", encoding="utf-8") as tmp:
         tmp_path = tmp.name
-        req_count = 0
+        for line in resolved_lines:
+            tmp.write(line + "\n")
+        req_count = len(resolved_lines)
 
-        if all_req_files:
-            for req_file in all_req_files:
-                with open(req_file, encoding="utf-8") as f:
-                    for line in f:
-                        if _process_requirement_line(line, ignored_req_map, tmp, target_env_for_markers):
-                            req_count += 1
-
-        if extra_requirements:
-            for req_line in extra_requirements:
-                if _process_requirement_line(req_line, {}, tmp, target_env_for_markers):
-                    req_count += 1
-
-        if extra_requirements_file:
-            extra_req_file = Path(extra_requirements_file).expanduser().resolve()
-            if extra_req_file.exists():
-                with open(extra_req_file, encoding="utf-8") as f:
-                    for line in f:
-                        if _process_requirement_line(line, {}, tmp, target_env_for_markers):
-                            req_count += 1
-
-        if manifest_files:
-            for manifest_file in manifest_files:
-                manifest = parsed_manifests[manifest_file]
-                ext_deps = manifest.get("external_dependencies", {})
-                if isinstance(ext_deps.get("python"), list):
-                    for dep in ext_deps["python"]:
-                        if _process_requirement_line(
-                            _resolve_manifest_dep(dep),
-                            ignored_req_map,
-                            tmp,
-                            target_env_for_markers,
-                        ):
-                            req_count += 1
+    # Validate the full dependency tree via uv pip compile — relax BASE pins
+    # that cause transitive conflicts (replaces the old _KNOWN_TRANSITIVE_CONFLICTS dict)
+    relaxed = _validate_and_relax(
+        req_file_path=tmp_path,
+        python_version=python_version,
+        base_pins=base_pin_names,
+        verbose=verbose,
+    )
+    if relaxed:
+        with open(tmp_path, encoding="utf-8") as f:
+            req_count = sum(1 for line in f if line.strip())
 
     skipped: list[str] = []
     if req_count > 0:
@@ -919,6 +1339,29 @@ def create_odoo_venv(  # noqa: C901
         typer.secho(f"  ✔  {typer.style(req_count, fg=typer.colors.YELLOW)} Packages installed successfully")
 
     os.remove(tmp_path)
+
+    # Best-effort install for manifest-only deps (not in any requirements.txt).
+    # These are installed individually so one failure (e.g. python-ldap needing
+    # system C libs) doesn't block the rest.
+    if manifest_only_deps:
+        # Filter out NBI packages — they're handled separately with --no-build-isolation
+        nbi_names = set(no_build_isolation_specs.keys())
+        manifest_only_deps = [d for d in manifest_only_deps if _normalize_pkg_name(d) not in nbi_names]
+
+    if manifest_only_deps:
+        typer.secho(f"\nInstalling {len(manifest_only_deps)} manifest dependencies (best-effort)...")
+        if verbose:
+            for dep in manifest_only_deps:
+                typer.secho(f"      - {dep}", fg=typer.colors.CYAN)
+        manifest_skipped = _install_manifest_deps_best_effort(manifest_only_deps, venv_dir=venv_dir, verbose=verbose)
+        installed_count = len(manifest_only_deps) - len(manifest_skipped)
+        if installed_count > 0:
+            typer.secho(f"  ✔  {installed_count} manifest dependencies installed")
+        if manifest_skipped:
+            typer.secho(
+                f"  ⚠  {len(manifest_skipped)} manifest dependencies skipped (may need system libraries)",
+                fg=typer.colors.YELLOW,
+            )
 
     # Odoo <= 13.0 requires setuptools<58 (2to3 support removed in 58.0) and wheel
     # as build tools for packages like vatnumber that use the legacy setup.py build system.
