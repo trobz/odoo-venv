@@ -250,7 +250,7 @@ jobs:
 
       - name: Create Odoo virtual environment
         run: |
-          addons_path=$(odoo-addons-path --addons-dir "~/code/oca/${{ matrix.odoo_version }}/*")
+          addons_path=$(odoo-addons-path ~/code/odoo/odoo/${{ matrix.odoo_version }} --addons-dir "~/code/oca/${{ matrix.odoo_version }}/*")
           odoo-venv create --verbose ${{ matrix.odoo_version }} \
             --preset ci \
             --odoo-dir ~/code/odoo/odoo/${{ matrix.odoo_version }} \
