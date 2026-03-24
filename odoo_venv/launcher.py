@@ -11,7 +11,14 @@ LAUNCHER_DIR = Path("~/.local/bin").expanduser()
 TEMPLATE_PATH = Path(__file__).parent / "assets" / "launcher.sh.template"
 
 
-def create_launcher(odoo_version: str, venv_dir: str | Path, force: bool = False) -> Path:
+def create_launcher(
+    odoo_version: str,
+    venv_dir: str | Path,
+    force: bool = False,
+    project_dir: str | None = None,
+    odoo_dir: str | None = None,
+    name: str | None = None,
+) -> Path:
     """
     Generate a bash launcher script that auto-activates the venv and runs Odoo.
 
@@ -19,6 +26,13 @@ def create_launcher(odoo_version: str, venv_dir: str | Path, force: bool = False
         odoo_version: Odoo version string (e.g., "19.0")
         venv_dir: Path to the virtual environment
         force: Overwrite existing launcher if True
+        project_dir: Path to project directory; when set, the launcher will
+            run ``odoo-addons-path`` at startup to resolve addons paths
+            dynamically (unless ADDONS_PATH is explicitly configured).
+        odoo_dir: Path to Odoo source directory; passed to ``odoo-addons-path``
+            via ``--odoo-dir`` so the base Odoo addons are included.
+        name: Custom launcher script name. When provided, the script is named
+            ``odoo-v{major}-{name}`` instead of the default ``odoo-v{major}``.
 
     Returns:
         Path to the created launcher script
@@ -26,9 +40,8 @@ def create_launcher(odoo_version: str, venv_dir: str | Path, force: bool = False
     Raises:
         SystemExit: If file exists and force=False, or on write errors
     """
-    # Extract major version for script name
     major_version = odoo_version.split(".")[0]
-    script_name = f"odoo-v{major_version}"
+    script_name = f"odoo-v{major_version}-{name}" if name else f"odoo-v{major_version}"
     output_path = LAUNCHER_DIR / script_name
 
     # Resolve venv path to absolute
@@ -48,7 +61,11 @@ def create_launcher(odoo_version: str, venv_dir: str | Path, force: bool = False
     # Read and render template
     try:
         template_content = TEMPLATE_PATH.read_text()
-        rendered = Template(template_content).substitute(VENV_DIR=str(venv_path))
+        rendered = Template(template_content).substitute(
+            VENV_DIR=str(venv_path),
+            PROJECT_DIR=project_dir or "",
+            ODOO_DIR=odoo_dir or "",
+        )
     except FileNotFoundError:
         typer.secho(f"Template not found: {TEMPLATE_PATH}", fg=typer.colors.RED, err=True)
         sys.exit(1)
