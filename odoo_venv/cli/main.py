@@ -165,8 +165,21 @@ def _resolve_odoo_dir_and_version(
         typer.secho("error: --odoo-dir is required when --project-dir is not used.", fg=typer.colors.RED)
         raise typer.Exit(1)
 
-    # Use detected version when available; otherwise infer from the resolved path
-    resolved_version = detected_version or get_odoo_version_from_release(odoo_dir_path)
+    # When --odoo-dir is explicit, always infer version from that path
+    # (detected_version may come from a different Odoo source via --project-dir).
+    if odoo_dir:
+        resolved_version = get_odoo_version_from_release(odoo_dir_path)
+        # Warn if --project-dir detected a different version than --odoo-dir
+        if detected_version and resolved_version and detected_version != resolved_version:
+            typer.secho(
+                f"error: version mismatch — --project-dir detected '{detected_version}' "
+                f"but --odoo-dir contains '{resolved_version}'. "
+                "Use the same Odoo source in both or drop one of the flags.",
+                fg=typer.colors.RED,
+            )
+            raise typer.Exit(1)
+    else:
+        resolved_version = detected_version or get_odoo_version_from_release(odoo_dir_path)
 
     if not resolved_version:
         typer.secho(
