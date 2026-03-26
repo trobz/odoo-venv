@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.14.1 (2026-03-26)
+
+### Bug Fixes
+
+- **presets**: Pin psycopg2 to 2.8.3 for Odoo 12 on Python < 3.8
+  ([`57f3310`](https://github.com/trobz/odoo-venv/commit/57f3310a10442c9a4b844942e05ae0e2b346b723))
+
+
 ## v1.14.0 (2026-03-26)
 
 ### Features
