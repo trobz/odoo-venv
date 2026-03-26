@@ -79,17 +79,68 @@ common configuration to all presets
 # on ubuntu 22.04/24.04, gevent fails to install with python 3.10
 # that we use for odoo 16.0, 17.0, 18.0, 19.0
 # see https://github.com/odoo/odoo/issues/187021
+#
+# pyldap is unmaintained and fails to build on OpenLDAP 2.5+ (libldap_r removed).
+# Odoo 13+ replaced it with python-ldap: https://github.com/odoo/odoo/issues/40069
+#
+# reportlab==3.3.0 (Odoo 12) has C extensions (_renderPM) that fail to build on modern systems.
+# Odoo 13 uses reportlab==3.5.13 which has a modernized build system.
+#
+# psycopg2 2.7.x uses Python 2's `basestring`, causing NameError on Python 3.
+# The 2.8.x line fixed this. Odoo 12 already pins 2.8.3 for python >= 3.8.
+#
+# pandas==0.13.1 (transitive dep of altair==4.0.1, used in Odoo 12) has invalid
+# PEP 440 metadata ("pytz >= 2011k") that modern setuptools rejects.
+# Pin pandas>=1.0.0 for Python 3.7 to get a buildable version.
+# pandas 1.3.5 is the last release supporting Python 3.7.
+#
+# Pillow==5.4.1 (Odoo 13) is too old for matplotlib>=3.4.1 from OCA modules
+# (matplotlib needs Pillow>=6.2.0). Pin pillow>=6.2.0 for Python 3.7.
+# See: https://github.com/odoo/odoo/issues/26175
+#
+# pyopenssl<23.2.0 lacks upper bound on cryptography in its metadata. When an OCA addon
+# mentions cryptography (triggering auto-ignore of Odoo's cryptography pin), the latest
+# cryptography (41+) gets installed alongside old pyopenssl, causing:
+#   AttributeError: module 'lib' has no attribute 'X509_V_FLAG_NOTIFY_POLICY'
+# Odoo 15 pins pyopenssl==19.0.0 + cryptography==2.6.1,
+# Odoo 16 pins pyopenssl==20.0.1 + cryptography==3.4.8,
+# Odoo 17 pins pyopenssl==21.0.0 + cryptography==3.4.8.
+# All three must be replaced together — they are a tightly-coupled trio with urllib3.
+#
+# urllib3==1.26.5 (Odoo 15) uses cryptography.hazmat.backends.openssl.x509._Certificate,
+# an internal path removed in cryptography 42+. urllib3>=1.26.18 uses the public API instead.
+# We pin 1.26.14 as it's the earliest 1.26.x that avoids this import, and stays within
+# requests==2.25.1's requirement of urllib3>=1.21.1,<1.27.
 
 ignore_from_odoo_requirements = """
 gevent==21.8.0; sys_platform != 'win32' and python_version == '3.10',
 greenlet==1.1.2; sys_platform != 'win32' and python_version == '3.10',
 cbor2==5.4.2 ; python_version < '3.12',
-urllib3==1.26.5; python_version > '3.9' and python_version < '3.12'
+urllib3==1.26.5; python_version > '3.9' and python_version < '3.12',
+python-ldap==3.4.0 ; sys_platform != 'win32' and python_version < '3.12',
+pyldap; sys_platform != 'win32',
+reportlab==3.3.0; python_version < '3.8',
+psycopg2==2.7.3.1; sys_platform != 'win32' and python_version < '3.8',
+pyopenssl==19.0.0,
+pyopenssl==20.0.1,
+pyopenssl==21.0.0,
+cryptography<41.0.0,
+Pillow==5.4.1; python_version < '3.8'
 """
+# python-ldap 3.4.0 fails on OpenLDAP 2.5+ (Arch, Fedora 36+, etc.)
+# because it hardcodes -lldap_r which was removed.
+# Bump to 3.4.2 which supports OpenLDAP 2.5+.
+# TMP: remove once https://github.com/odoo/odoo/pull/109217 is merged
 extra_requirement = """
 gevent==22.10.2; sys_platform == 'linux' and python_version == '3.10',
 greenlet==2.0.2; sys_platform == 'linux' and python_version == '3.10',
-urllib3==1.26.14; python_version > '3.9' and python_version < '3.12'
+urllib3==1.26.14; python_version > '3.9' and python_version < '3.12',
+python-ldap==3.4.2 ; sys_platform != 'win32' and python_version < '3.12',
+python-ldap; sys_platform != 'win32' and python_version < '3.8',
+reportlab==3.5.13; python_version < '3.8',
+psycopg2==2.8.3; sys_platform != 'win32' and python_version < '3.8',
+pandas>=1.0.0; python_version < '3.8',
+pillow>=6.2.0; python_version < '3.8',
 """
 
 # always ignore those exotic requirements unless explicitely added
@@ -109,6 +160,37 @@ command = ["uv", "pip", "install", "setuptools<82.0"]
 when = "odoo_version > '17.0' and python_version == '3.10'"
 stage = "after_requirements"
 
+# pyopenssl/cryptography/urllib3 trio: old versions break with OpenSSL 3.x (Ubuntu 24.04).
+# See: https://github.com/odoo/odoo/issues/79697
+#      https://github.com/odoo/odoo/issues/99809
+#
+# Odoo 12/13 (Python 3.7): OCA addons cap pyOpenSSL<23 and cryptography<23.2.0.
+# pyopenssl==22.1.0 is the highest <23 with OpenSSL 3.x support.
+# cryptography==38.0.4 is the latest in pyopenssl 22.1.0's required range (>=38,<39).
+[[common.extra_commands]]
+command = ["uv", "pip", "install", "pyopenssl==22.1.0", "cryptography==38.0.4"]
+when = "odoo_version <= '13.0'"
+stage = "after_requirements"
+
+# Odoo 14 (Python 3.8): OCA addons cap cryptography<23.2.0 and pyOpenSSL<23.
+# Same pins as 12/13 — constrained by OCA's pyOpenSSL<23 and cryptography<23.2.0.
+[[common.extra_commands]]
+command = ["uv", "pip", "install", "pyopenssl==22.1.0", "cryptography==38.0.4"]
+when = "odoo_version == '14.0'"
+stage = "after_requirements"
+
+# Odoo 15–17 (Python 3.8/3.10): no OCA caps, use latest compatible versions.
+[[common.extra_commands]]
+command = ["uv", "pip", "install", "pyopenssl>=24.0.0", "cryptography>=41.0.5"]
+when = "odoo_version >= '15.0' and odoo_version <= '17.0'"
+stage = "after_requirements"
+
+# urllib3==1.26.5 (Odoo 15) uses cryptography internal API removed in 42+.
+# Odoo 14 pins requests==2.21.0 which caps urllib3<1.25, so scope to Odoo 15 only.
+[[common.extra_commands]]
+command = ["uv", "pip", "install", "urllib3==1.26.14"]
+when = "odoo_version == '15.0'"
+stage = "after_requirements"
 # Install cbor2==5.4.3 for Odoo >= 18.0
 # TMP: remove once proper fix is merged in odoo
 # See https://github.com/OCA/oca-ci/pull/119
@@ -127,7 +209,79 @@ description = """
 
 install_addons_dirs_requirements = true
 install_addons_manifests_requirements = true
-extra_requirement = "debugpy,ipython,setproctitle,watchdog,jingtrang,websocket-client,coverage,pylint-odoo,astroid,pdfminer.six,fonttools"
+extra_requirement = """
+debugpy,ipython,setproctitle,watchdog,jingtrang,websocket-client,coverage,pylint-odoo,astroid,pdfminer.six,fonttools,
+pypdf<4; python_version < '3.8',
+pypdf<5; python_version >= '3.8',
+pandas>=1.0.0; python_version < '3.8',
+numpy-financial,
+email-validator,
+pyfrdas2,
+paramiko<4,
+apispec,
+marshmallow,
+marshmallow-objects
+"""
+
+# OCA web_widget_bokeh_chart requires exact bokeh versions per Odoo release.
+[[local.extra_commands]]
+command = ["uv", "pip", "install", "bokeh==2.3.1"]
+when = "odoo_version == '14.0'"
+stage = "after_requirements"
+
+[[local.extra_commands]]
+command = ["uv", "pip", "install", "bokeh==2.4.2"]
+when = "odoo_version == '15.0'"
+stage = "after_requirements"
+
+[[local.extra_commands]]
+command = ["uv", "pip", "install", "bokeh==3.1.1"]
+when = "odoo_version == '16.0'"
+stage = "after_requirements"
+
+[[local.extra_commands]]
+command = ["uv", "pip", "install", "bokeh==3.4.1"]
+when = "odoo_version == '17.0'"
+stage = "after_requirements"
+
+[[local.extra_commands]]
+command = ["uv", "pip", "install", "bokeh==3.6.3"]
+when = "odoo_version >= '18.0'"
+stage = "after_requirements"
+
+# factur-x: OCA account_invoice_facturx and Odoo core facturx modules.
+[[local.extra_commands]]
+command = ["uv", "pip", "install", "factur-x<=3.2"]
+when = "odoo_version >= '12.0' and odoo_version <= '13.0'"
+stage = "after_requirements"
+
+[[local.extra_commands]]
+command = ["uv", "pip", "install", "factur-x<=3.1"]
+when = "odoo_version >= '14.0' and odoo_version <= '15.0'"
+stage = "after_requirements"
+
+[[local.extra_commands]]
+command = ["uv", "pip", "install", "factur-x"]
+when = "odoo_version >= '16.0'"
+stage = "after_requirements"
+
+# OCA base_bank_from_iban (15.0+) requires exact schwifty==2024.4.0.
+[[local.extra_commands]]
+command = ["uv", "pip", "install", "schwifty==2024.4.0"]
+when = "odoo_version >= '15.0'"
+stage = "after_requirements"
+
+# OCA fs_attachment (storage repo, 17.0+) requires fsspec>=2025.3.0.
+[[local.extra_commands]]
+command = ["uv", "pip", "install", "fsspec>=2025.3.0"]
+when = "odoo_version >= '17.0'"
+stage = "after_requirements"
+
+# OCA delivery_easypost_oca (delivery-carrier repo, 17.0+) requires easypost==7.15.0.
+[[local.extra_commands]]
+command = ["uv", "pip", "install", "easypost==7.15.0"]
+when = "odoo_version >= '17.0'"
+stage = "after_requirements"
 
 [demo]
 
@@ -138,7 +292,79 @@ description = """
 
 install_addons_dirs_requirements = true
 install_addons_manifests_requirements = true
-extra_requirement = "pdfminer.six,fonttools"
+extra_requirement = """
+pdfminer.six,fonttools,
+pypdf<4; python_version < '3.8',
+pypdf<5; python_version >= '3.8',
+pandas>=1.0.0; python_version < '3.8',
+numpy-financial,
+email-validator,
+pyfrdas2,
+paramiko<4,
+apispec,
+marshmallow,
+marshmallow-objects
+"""
+
+# OCA web_widget_bokeh_chart requires exact bokeh versions per Odoo release.
+[[demo.extra_commands]]
+command = ["uv", "pip", "install", "bokeh==2.3.1"]
+when = "odoo_version == '14.0'"
+stage = "after_requirements"
+
+[[demo.extra_commands]]
+command = ["uv", "pip", "install", "bokeh==2.4.2"]
+when = "odoo_version == '15.0'"
+stage = "after_requirements"
+
+[[demo.extra_commands]]
+command = ["uv", "pip", "install", "bokeh==3.1.1"]
+when = "odoo_version == '16.0'"
+stage = "after_requirements"
+
+[[demo.extra_commands]]
+command = ["uv", "pip", "install", "bokeh==3.4.1"]
+when = "odoo_version == '17.0'"
+stage = "after_requirements"
+
+[[demo.extra_commands]]
+command = ["uv", "pip", "install", "bokeh==3.6.3"]
+when = "odoo_version >= '18.0'"
+stage = "after_requirements"
+
+# factur-x: OCA account_invoice_facturx and Odoo core facturx modules.
+[[demo.extra_commands]]
+command = ["uv", "pip", "install", "factur-x<=3.2"]
+when = "odoo_version >= '12.0' and odoo_version <= '13.0'"
+stage = "after_requirements"
+
+[[demo.extra_commands]]
+command = ["uv", "pip", "install", "factur-x<=3.1"]
+when = "odoo_version >= '14.0' and odoo_version <= '15.0'"
+stage = "after_requirements"
+
+[[demo.extra_commands]]
+command = ["uv", "pip", "install", "factur-x"]
+when = "odoo_version >= '16.0'"
+stage = "after_requirements"
+
+# OCA base_bank_from_iban (15.0+) requires exact schwifty==2024.4.0.
+[[demo.extra_commands]]
+command = ["uv", "pip", "install", "schwifty==2024.4.0"]
+when = "odoo_version >= '15.0'"
+stage = "after_requirements"
+
+# OCA fs_attachment (storage repo, 17.0+) requires fsspec>=2025.3.0.
+[[demo.extra_commands]]
+command = ["uv", "pip", "install", "fsspec>=2025.3.0"]
+when = "odoo_version >= '17.0'"
+stage = "after_requirements"
+
+# OCA delivery_easypost_oca (delivery-carrier repo, 17.0+) requires easypost==7.15.0.
+[[demo.extra_commands]]
+command = ["uv", "pip", "install", "easypost==7.15.0"]
+when = "odoo_version >= '17.0'"
+stage = "after_requirements"
 
 [project]
 
@@ -161,4 +387,76 @@ description = """
 install_addons_dirs_requirements = true
 install_addons_manifests_requirements = true
 extra_requirements_file = "./requirements.txt"
-extra_requirement = "websocket-client,coverage,pylint,astroid,pdfminer.six,fonttools"
+extra_requirement = """
+websocket-client,coverage,pylint,astroid,pdfminer.six,fonttools,
+pypdf<4; python_version < '3.8',
+pypdf<5; python_version >= '3.8',
+pandas>=1.0.0; python_version < '3.8',
+numpy-financial,
+email-validator,
+pyfrdas2,
+paramiko<4,
+apispec,
+marshmallow,
+marshmallow-objects
+"""
+
+# OCA web_widget_bokeh_chart requires exact bokeh versions per Odoo release.
+[[ci.extra_commands]]
+command = ["uv", "pip", "install", "bokeh==2.3.1"]
+when = "odoo_version == '14.0'"
+stage = "after_requirements"
+
+[[ci.extra_commands]]
+command = ["uv", "pip", "install", "bokeh==2.4.2"]
+when = "odoo_version == '15.0'"
+stage = "after_requirements"
+
+[[ci.extra_commands]]
+command = ["uv", "pip", "install", "bokeh==3.1.1"]
+when = "odoo_version == '16.0'"
+stage = "after_requirements"
+
+[[ci.extra_commands]]
+command = ["uv", "pip", "install", "bokeh==3.4.1"]
+when = "odoo_version == '17.0'"
+stage = "after_requirements"
+
+[[ci.extra_commands]]
+command = ["uv", "pip", "install", "bokeh==3.6.3"]
+when = "odoo_version >= '18.0'"
+stage = "after_requirements"
+
+# factur-x: OCA account_invoice_facturx and Odoo core facturx modules.
+[[ci.extra_commands]]
+command = ["uv", "pip", "install", "factur-x<=3.2"]
+when = "odoo_version >= '12.0' and odoo_version <= '13.0'"
+stage = "after_requirements"
+
+[[ci.extra_commands]]
+command = ["uv", "pip", "install", "factur-x<=3.1"]
+when = "odoo_version >= '14.0' and odoo_version <= '15.0'"
+stage = "after_requirements"
+
+[[ci.extra_commands]]
+command = ["uv", "pip", "install", "factur-x"]
+when = "odoo_version >= '16.0'"
+stage = "after_requirements"
+
+# OCA base_bank_from_iban (15.0+) requires exact schwifty==2024.4.0.
+[[ci.extra_commands]]
+command = ["uv", "pip", "install", "schwifty==2024.4.0"]
+when = "odoo_version >= '15.0'"
+stage = "after_requirements"
+
+# OCA fs_attachment (storage repo, 17.0+) requires fsspec>=2025.3.0.
+[[ci.extra_commands]]
+command = ["uv", "pip", "install", "fsspec>=2025.3.0"]
+when = "odoo_version >= '17.0'"
+stage = "after_requirements"
+
+# OCA delivery_easypost_oca (delivery-carrier repo, 17.0+) requires easypost==7.15.0.
+[[ci.extra_commands]]
+command = ["uv", "pip", "install", "easypost==7.15.0"]
+when = "odoo_version >= '17.0'"
+stage = "after_requirements"

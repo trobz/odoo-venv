@@ -368,7 +368,6 @@ def _run_command(
     extra_env: dict[str, str] | None = None,
     raise_on_error: bool = False,
 ):
-
     if verbose:
         typer.secho(f"  → Running: {' '.join(command)}", fg=typer.colors.BLUE)
 
@@ -725,17 +724,21 @@ def create_odoo_venv(  # noqa: C901
     )
 
     # 3. Process requirements
-    all_req_files = []
+    # Track Odoo's own requirements separately from addon dirs' requirements.
+    odoo_req_files: list[Path] = []
     if install_odoo_requirements:
         odoo_reqs_file = odoo_dir / "requirements.txt"
         if odoo_reqs_file.exists():
-            all_req_files.append(odoo_reqs_file)
+            odoo_req_files.append(odoo_reqs_file)
 
+    addons_req_files: list[Path] = []
     if install_addons_dirs_requirements and addons_paths:
         for path in addons_paths:
             addons_req_file = Path(path) / "requirements.txt"
             if addons_req_file.exists():
-                all_req_files.append(addons_req_file)
+                addons_req_files.append(addons_req_file)
+
+    all_req_files = odoo_req_files + addons_req_files
 
     ignore_req_lines = []
     if ignore_from_odoo_requirements:
@@ -769,11 +772,11 @@ def create_odoo_venv(  # noqa: C901
     # Cache parsed manifests to avoid re-reading/parsing the same files multiple times.
     parsed_manifests: dict[Path, dict] = {mf: ast.literal_eval(mf.read_text(encoding="utf-8")) for mf in manifest_files}
 
-    # Collect the set of packages actually present in the base requirement files
-    # (Odoo's requirements.txt and addons dirs).  Auto-ignore logic is restricted to
-    # this set so we never silently drop a package that Odoo doesn't pin.
+    # Collect the set of packages pinned by Odoo's own requirements.txt.
+    # Auto-ignore logic is restricted to this set so we never silently drop
+    # a package that only appears in addon dirs' requirements.txt or manifests.
     base_pinned: set[str] = set()
-    for req_file in all_req_files:
+    for req_file in odoo_req_files:
         base_pinned |= _collect_mentioned_packages(
             req_file.read_text(encoding="utf-8").splitlines(), target_env_for_markers
         )
