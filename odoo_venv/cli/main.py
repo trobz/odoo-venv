@@ -722,6 +722,21 @@ def compare(
 
 
 @app.command()
+def activate(
+    venv_dir: Annotated[str, typer.Option(help="Path to virtual environment.")] = "./.venv",
+):
+    """Activate a virtual environment (spawns a new shell)."""
+    from odoo_venv.activate import activate_venv
+
+    venv_path = Path(venv_dir).expanduser().resolve()
+    if not (venv_path / "bin" / "activate").is_file():
+        typer.secho(f"error: no venv found at {venv_path}", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    activate_venv(venv_path)
+
+
+@app.command()
 def create_odoo_launcher(
     odoo_version: Annotated[str, typer.Argument(help="Odoo version, e.g: 19.0 or master")],
     venv_dir: Annotated[str, typer.Option(help="Path to the virtual environment.")],
