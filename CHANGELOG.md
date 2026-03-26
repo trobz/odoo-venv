@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.14.0 (2026-03-26)
+
+### Features
+
+- **create**: Add --force option to recreate virtual environment
+  ([`b3a3ff2`](https://github.com/trobz/odoo-venv/commit/b3a3ff288aa94f6051b7068ee15c4597bc4f83c6))
+
+
 ## v1.13.1 (2026-03-26)
 
 ### Bug Fixes
