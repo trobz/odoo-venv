@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v1.13.1 (2026-03-26)
+
+### Bug Fixes
+
+- **ci**: Pass codebase arg to odoo-addons-path in OCA e2e jobs
+  ([`969362d`](https://github.com/trobz/odoo-venv/commit/969362d01279807cc1b22e212e7f22926e921368))
+
+- **launcher**: Bypass broken shebang by invoking bin/odoo through python
+  ([`5bb13cd`](https://github.com/trobz/odoo-venv/commit/5bb13cd20a1b9e3281c58182610e2ddff1daf4df))
+
+- **launcher**: Resolve real major version for non-numeric branches like master
+  ([`d4f6099`](https://github.com/trobz/odoo-venv/commit/d4f6099d50a86b72fa3de108ebf1d72128db041a))
+
+
 ## v1.13.0 (2026-03-24)
 
 ### Features
