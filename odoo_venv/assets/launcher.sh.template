@@ -11,7 +11,7 @@
 # Usage:
 #   1. Edit variables below (e.g., DATABASE="mydb", DEV_MODE="all")
 #   2. Run: odoo-v{version}
-#   3. Script activates venv and builds command: odoo -d mydb --dev all
+#   3. Script activates venv and builds command: python $VENV_DIR/bin/odoo -d mydb --dev all
 
 set -uo pipefail
 
@@ -79,7 +79,10 @@ add_arg() { [[ -n "$$2" ]] && CMD+=("$$1" "$$2"); }
 add_flag() { [[ "$$2" == "true" ]] && CMD+=("$$1"); }
 
 build_command() {
-  CMD=("odoo")
+  # Use 'python bin/odoo' instead of 'bin/odoo' directly to bypass broken shebang.
+  # uv pip install -e writes a temporary build path as the shebang in bin/odoo,
+  # which breaks after installation. Running it through python ignores the shebang.
+  CMD=("python" "$$VENV_DIR/bin/odoo")
 
   # Database
   add_arg "-d" "$$DATABASE"

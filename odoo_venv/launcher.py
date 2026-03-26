@@ -6,18 +6,47 @@ from pathlib import Path
 from string import Template
 
 import typer
+from odoo_addons_path import get_odoo_version
 
 LAUNCHER_DIR = Path("~/.local/bin").expanduser()
 TEMPLATE_PATH = Path(__file__).parent / "assets" / "launcher.sh.template"
 
 
-def create_launcher(odoo_version: str, venv_dir: str | Path, force: bool = False) -> Path:
+def _resolve_major_version(odoo_version: str, odoo_dir: Path | None) -> str:
+    """Resolve the major version number from the Odoo version string.
+
+    When odoo_version is non-numeric (e.g. "master"), detect the real
+    version from the Odoo source via ``get_odoo_version``.
+    """
+    major = odoo_version.split(".")[0]
+    if major.isdigit():
+        return major
+
+    # Non-numeric branch name (e.g. "master") — detect from source
+    if odoo_dir is not None:
+        detected = get_odoo_version(addons_path="", odoo_dir=odoo_dir)
+        if detected:
+            return detected.split(".")[0]
+
+    typer.secho(
+        f"Cannot determine major version from '{odoo_version}'. "
+        "Pass --odoo-dir so the version can be read from odoo/release.py.",
+        fg=typer.colors.RED,
+        err=True,
+    )
+    sys.exit(1)
+
+
+def create_launcher(
+    odoo_version: str, venv_dir: str | Path, *, odoo_dir: Path | None = None, force: bool = False
+) -> Path:
     """
     Generate a bash launcher script that auto-activates the venv and runs Odoo.
 
     Args:
-        odoo_version: Odoo version string (e.g., "19.0")
+        odoo_version: Odoo version string (e.g., "19.0" or "master")
         venv_dir: Path to the virtual environment
+        odoo_dir: Path to Odoo source (needed to resolve non-numeric versions like "master")
         force: Overwrite existing launcher if True
 
     Returns:
@@ -26,8 +55,7 @@ def create_launcher(odoo_version: str, venv_dir: str | Path, force: bool = False
     Raises:
         SystemExit: If file exists and force=False, or on write errors
     """
-    # Extract major version for script name
-    major_version = odoo_version.split(".")[0]
+    major_version = _resolve_major_version(odoo_version, odoo_dir)
     script_name = f"odoo-v{major_version}"
     output_path = LAUNCHER_DIR / script_name
 
