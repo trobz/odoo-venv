@@ -123,7 +123,7 @@ jobs:
 
       - name: Create Odoo virtual environment
         run: |
-          odoo-venv create --verbose ${{ matrix.odoo_version }} \
+          odoo-venv create --verbose \
             --preset ci \
             --odoo-dir ~/code/odoo/odoo/${{ matrix.odoo_version }} \
             --venv-dir ~/code/venvs/${{ matrix.odoo_version }} \
@@ -251,7 +251,7 @@ jobs:
       - name: Create Odoo virtual environment
         run: |
           addons_path=$(odoo-addons-path ~/code/odoo/odoo/${{ matrix.odoo_version }} --addons-dir "~/code/oca/${{ matrix.odoo_version }}/*")
-          odoo-venv create --verbose ${{ matrix.odoo_version }} \
+          odoo-venv create --verbose \
             --preset ci \
             --odoo-dir ~/code/odoo/odoo/${{ matrix.odoo_version }} \
             --venv-dir ~/code/venvs/${{ matrix.odoo_version }} \
