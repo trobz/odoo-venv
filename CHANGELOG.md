@@ -2,6 +2,32 @@
 
 <!-- version list -->
 
+## v1.15.0 (2026-03-26)
+
+### Bug Fixes
+
+- **cli**: Add version mismatch detection between --project-dir and --odoo-dir
+  ([`7789cb5`](https://github.com/trobz/odoo-venv/commit/7789cb5cd60ae3ba20904ad14e24c74111fe4fac))
+
+### Documentation
+
+- Update documentation for opinionated-presets
+  ([`68b9fed`](https://github.com/trobz/odoo-venv/commit/68b9fedb29e4a6624d7405545492a2e7d2a36f39))
+
+### Features
+
+- **cli**: Remove odoo_version positional argument, infer from --odoo-dir
+  ([`036a8c2`](https://github.com/trobz/odoo-venv/commit/036a8c298b66891ca14ade6d955ef29d9223684c))
+
+- **presets**: Apply common preset by default when no --preset given
+  ([`9b19fce`](https://github.com/trobz/odoo-venv/commit/9b19fcec639c1e07987ac1cf6648dd931f65fbe4))
+
+### Refactoring
+
+- **presets**: Remove migration system and user-customizable presets
+  ([`d85c18f`](https://github.com/trobz/odoo-venv/commit/d85c18f9785b53c6d1f383a947a93e431c6737ee))
+
+
 ## v1.14.1 (2026-03-26)
 
 ### Bug Fixes
