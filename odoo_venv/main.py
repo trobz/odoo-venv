@@ -666,6 +666,7 @@ def create_odoo_venv(  # noqa: C901
     extra_commands: list[dict] | None = None,
     verbose: bool = False,
     skip_on_failure: bool = False,
+    force: bool = False,
 ):
     odoo_dir = Path(odoo_dir).expanduser().resolve()
     venv_dir = Path(venv_dir).expanduser().resolve()
@@ -709,7 +710,26 @@ def create_odoo_venv(  # noqa: C901
     venv_command = ["uv", "venv", str(venv_dir)]
     if python_version:
         venv_command.extend(["--python", python_version])
-    _run_command(venv_command, verbose=verbose)
+    if force:
+        venv_command.append("--clear")
+    try:
+        _run_command(
+            venv_command,
+            verbose=verbose,
+            raise_on_error=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip()
+        if "already exists" in stderr:
+            typer.echo(
+                f"Virtual environment already exists at {typer.style(str(venv_dir), fg=typer.colors.YELLOW)}. "
+                f"Use {typer.style('--force', fg=typer.colors.CYAN)} to recreate it.",
+                file=sys.stderr,
+            )
+            raise typer.Exit(1) from exc
+        typer.echo(stderr, file=sys.stderr)
+        typer.echo(f"Command failed: {' '.join(venv_command)}", file=sys.stderr)
+        raise typer.Exit(1) from exc
     typer.secho(
         f"  ✔ Virtual environment created at {typer.style(str(venv_dir), fg=typer.colors.YELLOW)}",
     )
