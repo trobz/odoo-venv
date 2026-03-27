@@ -126,6 +126,20 @@ def main_callback(
     pass
 
 
+def _build_extra_requirements(ctx: typer.Context, extra_requirement: str | tuple | None) -> list[str]:
+    """Merge preset's extra_requirement with any explicit CLI value."""
+    result = []
+    preset_extra_req = (ctx.obj or {}).get("preset_extra_requirement")
+    if preset_extra_req:
+        result.extend(split_escaped(preset_extra_req))
+    if extra_requirement:
+        if isinstance(extra_requirement, str):
+            result.extend(split_escaped(extra_requirement))
+        else:
+            result.extend(extra_requirement)
+    return result
+
+
 def _detect_project_layout(project_dir_value: str) -> tuple[Path | None, str | None, str | None]:
     """Detect odoo_dir, odoo_version, and addons_path from a project directory.
 
@@ -382,15 +396,7 @@ def create(
 
     # Merge preset's extra_requirement (stored in ctx.obj) with any explicit CLI value.
     # The CLI value is additive: --extra-requirement="" means "nothing extra beyond the preset".
-    extra_requirements_list = []
-    preset_extra_req = (ctx.obj or {}).get("preset_extra_requirement")
-    if preset_extra_req:
-        extra_requirements_list.extend(split_escaped(preset_extra_req))
-    if extra_requirement:
-        if isinstance(extra_requirement, str):
-            extra_requirements_list.extend(split_escaped(extra_requirement))
-        else:
-            extra_requirements_list.extend(extra_requirement)
+    extra_requirements_list = _build_extra_requirements(ctx, extra_requirement)
 
     if not addons_path and detected_addons_path:
         addons_path = detected_addons_path
