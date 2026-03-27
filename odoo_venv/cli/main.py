@@ -19,7 +19,11 @@ from odoo_addons_path import (
 from odoo_venv.exceptions import PresetNotFoundError
 from odoo_venv.launcher import create_launcher
 from odoo_venv.main import create_odoo_venv
-from odoo_venv.utils import load_presets, split_escaped
+from odoo_venv.utils import (
+    load_presets,
+    split_escaped,
+    write_venv_config,
+)
 
 app = typer.Typer()
 # we use same python versions as OCA: https://github.com/oca/oca-ci/blob/master/.github/workflows/ci.yaml
@@ -431,6 +435,32 @@ def create(
 
     if create_launcher_flag:
         create_launcher(odoo_version, venv_dir_path, odoo_dir=odoo_dir_path, force=True)
+
+    effective_preset = preset
+    if not effective_preset and project_dir_value:
+        effective_preset = "project"
+
+    config_args = {
+        "preset": effective_preset or "",
+        "python_version": python_version or "",
+        "odoo_dir": str(odoo_dir_path),
+        "venv_dir": str(venv_dir_path),
+        "addons_path": addons_path or "",
+        "install_odoo": install_odoo,
+        "install_odoo_requirements": install_odoo_requirements,
+        "ignore_from_odoo_requirements": ignore_from_odoo_requirements or "",
+        "install_addons_dirs_requirements": install_addons_dirs_requirements,
+        "ignore_from_addons_dirs_requirements": ignore_from_addons_dirs_requirements or "",
+        "install_addons_manifests_requirements": install_addons_manifests_requirements,
+        "ignore_from_addons_manifests_requirements": ignore_from_addons_manifests_requirements or "",
+        "extra_requirements_file": extra_requirements_file or "",
+        "extra_requirement": ",".join(extra_requirements_list) if extra_requirements_list else "",
+        "skip_on_failure": skip_on_failure,
+        "create_launcher": create_launcher_flag,
+        "project_dir": project_dir_value or "",
+    }
+
+    write_venv_config(venv_dir_path, config_args, odoo_version)
 
 
 def _is_uv_venv(venv_dir: Path) -> bool:
