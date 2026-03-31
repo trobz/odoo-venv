@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.15.1 (2026-03-31)
+
+### Bug Fixes
+
+- **presets**: Apply common preset in eager callback so default_map works
+  ([`1af49ce`](https://github.com/trobz/odoo-venv/commit/1af49cec2e5a5f71cb7bf4e32cc23297e1c4d733))
+
+
 ## v1.15.0 (2026-03-26)
 
 ### Bug Fixes
