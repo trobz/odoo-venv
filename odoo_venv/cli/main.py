@@ -483,6 +483,8 @@ def create(
     effective_preset = preset
     if not effective_preset and project_dir_value:
         effective_preset = "project"
+    elif not effective_preset:
+        effective_preset = "common"
 
     config_args = {
         "preset": effective_preset or "",
