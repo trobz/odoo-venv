@@ -10,15 +10,23 @@ FAKE_PRESETS = {
     "common": Preset(
         description="common preset",
         extra_requirement="setuptools",
+        ignore_from_odoo_requirements="badpkg",
+        ignore_from_addons_dirs_requirements="azure-identity",
     ),
+    # Non-common presets simulate what load_presets() returns in production:
+    # common's fields are already merged into each preset.
     "local": Preset(
         description="local dev preset",
-        extra_requirement="debugpy,ipython",
+        extra_requirement="setuptools,debugpy,ipython",
+        ignore_from_odoo_requirements="badpkg",
+        ignore_from_addons_dirs_requirements="azure-identity",
         install_addons_dirs_requirements=True,
     ),
     "project": Preset(
         description="project preset",
-        extra_requirement="pdfminer.six,fonttools",
+        extra_requirement="setuptools,pdfminer.six,fonttools",
+        ignore_from_odoo_requirements="badpkg",
+        ignore_from_addons_dirs_requirements="azure-identity",
         extra_requirements_file="./requirements.txt",
         install_addons_dirs_requirements=False,
     ),
@@ -57,6 +65,7 @@ class TestPresetOrdering:
         assert "ipython" in kwargs["extra_requirements"]
         # "project" preset packages must NOT appear (project was skipped)
         assert "pdfminer.six" not in kwargs["extra_requirements"]
+        assert kwargs["ignore_from_odoo_requirements"] == "badpkg"
 
     @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
@@ -103,10 +112,11 @@ class TestExtraRequirementAdditive:
         assert result.exit_code == 0, result.output
         _, kwargs = mock_create.call_args
         extra = kwargs["extra_requirements"]
+        assert "setuptools" in extra
         assert "debugpy" in extra
         assert "ipython" in extra
         assert "mypkg" in extra
-        assert len(extra) == 3
+        assert len(extra) == 4
 
     @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
@@ -118,7 +128,7 @@ class TestExtraRequirementAdditive:
 
         assert result.exit_code == 0, result.output
         _, kwargs = mock_create.call_args
-        assert kwargs["extra_requirements"] == ["debugpy", "ipython"]
+        assert kwargs["extra_requirements"] == ["setuptools", "debugpy", "ipython"]
 
     @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
@@ -149,6 +159,31 @@ class TestDefaultCommonPreset:
         assert result.exit_code == 0, result.output
         _, kwargs = mock_create.call_args
         assert "setuptools" in kwargs["extra_requirements"]
+
+    @_MOCK_VERSION
+    @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
+    @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
+    @patch("odoo_venv.cli.main.create_odoo_venv")
+    def test_no_preset_applies_common_default_map_fields(self, mock_create, mock_detect, mock_load, mock_ver):
+        """No --preset: common's default_map fields (ignore_from_*) reach function params."""
+        result = runner.invoke(app, [*_BASE_ARGS])
+
+        assert result.exit_code == 0, result.output
+        _, kwargs = mock_create.call_args
+        assert kwargs["ignore_from_odoo_requirements"] == "badpkg"
+        assert kwargs["ignore_from_addons_dirs_requirements"] == "azure-identity"
+
+    @_MOCK_VERSION
+    @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
+    @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
+    @patch("odoo_venv.cli.main.create_odoo_venv")
+    def test_cli_flag_overrides_common_default(self, mock_create, mock_detect, mock_load, mock_ver):
+        """Explicit --ignore-from-odoo-requirements overrides common preset value."""
+        result = runner.invoke(app, [*_BASE_ARGS, "--ignore-from-odoo-requirements", "mypkg"])
+
+        assert result.exit_code == 0, result.output
+        _, kwargs = mock_create.call_args
+        assert kwargs["ignore_from_odoo_requirements"] == "mypkg"
 
     @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)

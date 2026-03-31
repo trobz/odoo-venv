@@ -68,10 +68,14 @@ def _apply_preset(ctx: typer.Context, preset_name: str, all_presets: dict, *, si
 
 
 def preset_callback(ctx: typer.Context, param: typer.CallbackParam, value: str):
+    all_presets = load_presets()
+
     if not value:
+        obj = ctx.ensure_object(dict)
+        if not obj.get("project_dir") and "common" in all_presets:
+            _apply_preset(ctx, "common", all_presets)
         return None
 
-    all_presets = load_presets()
     if value not in all_presets:
         raise PresetNotFoundError(value)
 
@@ -362,13 +366,6 @@ def create(
     if report_errors:
         _run_with_error_reporting(sys.argv)
         return
-
-    # Apply 'common' preset by default when no explicit --preset or --project-dir
-    obj = ctx.ensure_object(dict)
-    if not obj.get("explicit_preset") and not obj.get("project_dir"):
-        all_presets = load_presets()
-        if "common" in all_presets:
-            _apply_preset(ctx, "common", all_presets, silent=True)
 
     # Auto-detect layout from --project-dir if provided
     project_dir_value = ctx.obj.get("project_dir") if ctx.obj else None
