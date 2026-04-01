@@ -2,6 +2,27 @@
 
 <!-- version list -->
 
+## v1.16.0 (2026-04-01)
+
+### Bug Fixes
+
+- Write default preset to .odoo-venv.toml
+  ([`b365dff`](https://github.com/trobz/odoo-venv/commit/b365dffc3be40b0a2e0187b7d65c5ba142f590dc))
+
+### Features
+
+- Add update command and venv configuration management
+  ([`b9b9679`](https://github.com/trobz/odoo-venv/commit/b9b967944f8f473312b4425131cec7d9e93f7837))
+
+- **create**: Persist CLI args to .odoo-venv.toml after venv creation
+  ([`bf2558a`](https://github.com/trobz/odoo-venv/commit/bf2558a81e1c3994e602f7bdc3ade89372dd9254))
+
+### Refactoring
+
+- **create**: Extract _build_extra_requirements helper
+  ([`86fd2fd`](https://github.com/trobz/odoo-venv/commit/86fd2fdd54da07241c1d130de9d7d9f80cf4df98))
+
+
 ## v1.15.1 (2026-03-31)
 
 ### Bug Fixes
