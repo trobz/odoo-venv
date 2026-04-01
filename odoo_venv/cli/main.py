@@ -880,6 +880,10 @@ def update(
         bool,
         typer.Option("--backup/--no-backup", help="Keep old venv as <venv>.bak."),
     ] = True,
+    yes: Annotated[
+        bool,
+        typer.Option(help="Skip confirmation prompt.", is_flag=True),
+    ] = False,
 ):
     """Update an existing venv by rebuilding from its .odoo-venv.toml configuration."""
 
@@ -933,7 +937,7 @@ def update(
         changed = sum(1 for n in all_names if n in old_pkgs and n in new_pkgs and old_pkgs[n] != new_pkgs[n])
         typer.secho(f"\n{added} added, {removed} removed, {changed} changed", fg=typer.colors.CYAN)
 
-        confirm = typer.confirm("Apply update?", default=False)
+        confirm = yes or typer.confirm("Apply update?", default=False)
         if not confirm:
             typer.secho("Update cancelled.", fg=typer.colors.YELLOW)
             raise typer.Exit(0)
