@@ -1,0 +1,116 @@
+# Dependency resolution modes for odoo-venv.
+#
+# Each mode defines HOW version constraints are resolved (orthogonal to presets,
+# which define WHAT to install).
+#
+# Modes:
+#   conservative  — Odoo+OCA compatible pins (safest, default)
+#   modern        — Latest secure deps, OCA compatible (inherits conservative overrides)
+#   bleeding-edge — No version caps, discover breakage
+#
+# Override fields:
+#   package  — package name this override targets
+#   ignore   — requirement specs to add to the ignore list
+#   install  — requirement specs to add as extra requirements
+#   when     — marker expression (same syntax as extra_commands)
+#   reason   — documentation only (why this override exists)
+
+[conservative]
+description = "Odoo+OCA compatible pins"
+strategy = "compat"
+
+# pyopenssl / cryptography / urllib3 — tightly-coupled trio that breaks on OpenSSL 3.x
+# (Ubuntu 24.04+). Must be overridden together per Odoo version range.
+# See: https://github.com/trobz/odoo-venv/pull/76
+
+# Odoo 12–14: OCA constrains pyOpenSSL<23, so pin to last compatible pair
+[[conservative.overrides]]
+package = "pyopenssl"
+ignore = ["pyopenssl"]
+install = ["pyopenssl==22.1.0"]
+when = "odoo_version >= '12.0' and odoo_version <= '14.0'"
+reason = "Old pyopenssl breaks on OpenSSL 3.x; OCA pins pyOpenSSL<23"
+
+[[conservative.overrides]]
+package = "cryptography"
+ignore = ["cryptography"]
+install = ["cryptography==38.0.4"]
+when = "odoo_version >= '12.0' and odoo_version <= '14.0'"
+reason = "Paired with pyopenssl==22.1.0 for OpenSSL 3.x compat"
+
+# Odoo 15–17: no OCA upper bound, use latest secure versions
+[[conservative.overrides]]
+package = "pyopenssl"
+ignore = ["pyopenssl"]
+install = ["pyopenssl>=24.0.0"]
+when = "odoo_version >= '15.0' and odoo_version <= '17.0'"
+reason = "Old pyopenssl breaks on OpenSSL 3.x"
+
+[[conservative.overrides]]
+package = "cryptography"
+ignore = ["cryptography"]
+install = ["cryptography>=41.0.5"]
+when = "odoo_version >= '15.0' and odoo_version <= '17.0'"
+reason = "Paired with pyopenssl>=24.0.0 for OpenSSL 3.x compat"
+
+# urllib3: Odoo 15–19 all pin urllib3==1.26.5 for python<3.12.
+# Uses cryptography internals removed in 42+, breaks sentry-sdk and google-books-api-wrapper.
+# Odoo 14 pins requests==2.21.0 which caps urllib3<1.25, so scope to 15+.
+# python_version guard needed: Odoo 18+/py3.12 pin urllib3==2.0.7 which is fine.
+[[conservative.overrides]]
+package = "urllib3"
+ignore = ["urllib3==1.26.5"]
+install = ["urllib3==1.26.14"]
+when = "odoo_version >= '15.0' and python_version < '3.12'"
+reason = "urllib3 1.26.5 uses removed cryptography internal API"
+
+[modern]
+description = "Latest secure deps, OCA compatible"
+strategy = "latest-secure"
+
+# Modern overrides pyopenssl/cryptography with floor versions for all affected Odoo ranges
+[[modern.overrides]]
+package = "pyopenssl"
+ignore = ["pyopenssl"]
+install = ["pyopenssl>=24.0.0"]
+when = "odoo_version >= '12.0' and odoo_version <= '17.0'"
+reason = "Latest secure pyopenssl for OpenSSL 3.x compat"
+
+[[modern.overrides]]
+package = "cryptography"
+ignore = ["cryptography"]
+install = ["cryptography>=41.0.5"]
+when = "odoo_version >= '12.0' and odoo_version <= '17.0'"
+reason = "Latest secure cryptography for OpenSSL 3.x compat"
+
+[[modern.overrides]]
+package = "urllib3"
+ignore = ["urllib3==1.26.5"]
+install = ["urllib3>=1.26.14"]
+when = "odoo_version >= '15.0' and python_version < '3.12'"
+reason = "Floor version, let resolver pick latest compatible"
+
+# pyldap / python-ldap — fail to build on OpenLDAP 2.5+ (libldap_r removed).
+# Odoo 12 uses pyldap (unmaintained); Odoo 13+ uses python-ldap.
+# See: https://github.com/odoo/odoo/issues/40069
+#      https://github.com/odoo/odoo/pull/109217
+
+# Odoo 12: pyldap is dead, replace with python-ldap
+[[modern.overrides]]
+package = "pyldap"
+ignore = ["pyldap"]
+install = ["python-ldap>=3.4.2"]
+when = "odoo_version == '12.0' and sys_platform != 'win32'"
+reason = "pyldap unmaintained, fails on OpenLDAP 2.5+ (libldap_r removed)"
+
+# Odoo 13–17: python-ldap 3.4.0 hardcodes -lldap_r
+[[modern.overrides]]
+package = "python-ldap"
+ignore = ["python-ldap==3.4.0"]
+install = ["python-ldap>=3.4.2"]
+when = "odoo_version >= '13.0' and sys_platform != 'win32'"
+reason = "3.4.0 hardcodes -lldap_r removed in OpenLDAP 2.5+"
+
+[bleeding-edge]
+description = "No version caps, discover breakage"
+strategy = "uncapped"

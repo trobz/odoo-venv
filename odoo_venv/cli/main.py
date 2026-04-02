@@ -21,6 +21,7 @@ from rich.console import Console
 from odoo_venv.exceptions import PresetNotFoundError
 from odoo_venv.launcher import create_launcher
 from odoo_venv.main import create_odoo_venv
+from odoo_venv.modes import available_modes
 from odoo_venv.utils import (
     VENV_CONFIG_FILENAME,
     load_presets,
@@ -89,6 +90,14 @@ def preset_callback(ctx: typer.Context, param: typer.CallbackParam, value: str):
 
     _apply_preset(ctx, value, all_presets)
     ctx.ensure_object(dict)["explicit_preset"] = True
+    return value
+
+
+def mode_callback(ctx: typer.Context, param: typer.CallbackParam, value: str):
+    valid = available_modes()
+    if value not in valid:
+        raise typer.BadParameter(f"Invalid mode '{value}'. Choose from: {', '.join(sorted(valid))}")  # noqa: TRY003
+    ctx.ensure_object(dict)["mode"] = value
     return value
 
 
@@ -386,6 +395,16 @@ def create(
             help="Use a preset of options. Preset values can be overriden by other options.",
         ),
     ] = None,
+    mode: Annotated[
+        str,
+        typer.Option(
+            "--mode",
+            callback=mode_callback,
+            is_eager=True,
+            help="Dependency resolution mode: conservative (Odoo+OCA compat), "
+            "modern (latest secure + OCA), bleeding-edge (no caps).",
+        ),
+    ] = "conservative",
     create_launcher_flag: Annotated[
         bool,
         typer.Option(
@@ -419,6 +438,13 @@ def create(
             help="On failure, automatically open a GitHub issue with the full command and output.",
         ),
     ] = False,
+    report: Annotated[
+        bool,
+        typer.Option(
+            "--report",
+            help="Generate a compatibility report (only valid with --mode bleeding-edge).",
+        ),
+    ] = False,
     force: Annotated[
         bool,
         typer.Option("--force", "-f", help="Overwrite existing virtual environment."),
@@ -428,6 +454,12 @@ def create(
     if report_errors:
         _run_with_error_reporting(sys.argv)
         return
+
+    mode_name = (ctx.obj or {}).get("mode", "conservative")
+
+    if report and mode_name != "bleeding-edge":
+        typer.secho("error: --report is only valid with --mode bleeding-edge", fg=typer.colors.RED)
+        raise typer.Exit(1)
 
     # Auto-detect layout from --project-dir if provided
     project_dir_value = ctx.obj.get("project_dir") if ctx.obj else None
@@ -472,6 +504,7 @@ def create(
         extra_requirements_file=extra_requirements_file,
         extra_requirements=extra_requirements_list,
         extra_commands=extra_commands,
+        mode=mode_name,
         verbose=verbose,
         skip_on_failure=skip_on_failure,
         force=force,
@@ -504,6 +537,7 @@ def create(
         "skip_on_failure": skip_on_failure,
         "create_launcher": create_launcher_flag,
         "project_dir": project_dir_value or "",
+        "mode": mode_name,
     }
 
     write_venv_config(venv_dir_path, config_args, odoo_version)
