@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.16.1 (2026-04-02)
+
+### Bug Fixes
+
+- **update**: Have option to skip confirmation
+  ([`9defa6d`](https://github.com/trobz/odoo-venv/commit/9defa6d1f3ea127ecb82c8899e6d7f0ade71c5b0))
+
+
 ## v1.16.0 (2026-04-01)
 
 ### Bug Fixes
