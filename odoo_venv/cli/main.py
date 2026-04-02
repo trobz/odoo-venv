@@ -92,6 +92,16 @@ def preset_callback(ctx: typer.Context, param: typer.CallbackParam, value: str):
     return value
 
 
+_VALID_MODES = {"conservative", "modern", "bleeding-edge"}
+
+
+def mode_callback(ctx: typer.Context, param: typer.CallbackParam, value: str):
+    if value not in _VALID_MODES:
+        raise typer.BadParameter(f"Invalid mode '{value}'. Choose from: {', '.join(sorted(_VALID_MODES))}")  # noqa: TRY003
+    ctx.ensure_object(dict)["mode"] = value
+    return value
+
+
 def project_dir_callback(ctx: typer.Context, param: typer.CallbackParam, value: str | None):
     if not value:
         return None
@@ -386,6 +396,16 @@ def create(
             help="Use a preset of options. Preset values can be overriden by other options.",
         ),
     ] = None,
+    mode: Annotated[
+        str,
+        typer.Option(
+            "--mode",
+            callback=mode_callback,
+            is_eager=True,
+            help="Dependency resolution mode: conservative (Odoo+OCA compat), "
+            "modern (latest secure + OCA), bleeding-edge (no caps).",
+        ),
+    ] = "conservative",
     create_launcher_flag: Annotated[
         bool,
         typer.Option(
@@ -419,6 +439,13 @@ def create(
             help="On failure, automatically open a GitHub issue with the full command and output.",
         ),
     ] = False,
+    report: Annotated[
+        bool,
+        typer.Option(
+            "--report",
+            help="Generate a compatibility report (only valid with --mode bleeding-edge).",
+        ),
+    ] = False,
     force: Annotated[
         bool,
         typer.Option("--force", "-f", help="Overwrite existing virtual environment."),
@@ -428,6 +455,12 @@ def create(
     if report_errors:
         _run_with_error_reporting(sys.argv)
         return
+
+    mode_name = (ctx.obj or {}).get("mode", "conservative")
+
+    if report and mode_name != "bleeding-edge":
+        typer.secho("error: --report is only valid with --mode bleeding-edge", fg=typer.colors.RED)
+        raise typer.Exit(1)
 
     # Auto-detect layout from --project-dir if provided
     project_dir_value = ctx.obj.get("project_dir") if ctx.obj else None
@@ -472,6 +505,7 @@ def create(
         extra_requirements_file=extra_requirements_file,
         extra_requirements=extra_requirements_list,
         extra_commands=extra_commands,
+        mode=mode_name,
         verbose=verbose,
         skip_on_failure=skip_on_failure,
         force=force,

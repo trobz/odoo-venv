@@ -1,0 +1,28 @@
+# Dependency resolution modes for odoo-venv.
+#
+# Each mode defines HOW version constraints are resolved (orthogonal to presets,
+# which define WHAT to install).
+#
+# Modes:
+#   conservative  — Odoo+OCA compatible pins (safest, default)
+#   modern        — Latest secure deps, OCA compatible (inherits conservative overrides)
+#   bleeding-edge — No version caps, discover breakage
+#
+# Override fields:
+#   package  — package name this override targets
+#   ignore   — requirement specs to add to the ignore list
+#   install  — requirement specs to add as extra requirements
+#   when     — marker expression (same syntax as extra_commands)
+#   reason   — documentation only (why this override exists)
+
+[conservative]
+description = "Odoo+OCA compatible pins"
+strategy = "compat"
+
+[modern]
+description = "Latest secure deps, OCA compatible"
+strategy = "latest-secure"
+
+[bleeding-edge]
+description = "No version caps, discover breakage"
+strategy = "uncapped"
