@@ -14,6 +14,8 @@ from packaging.markers import Marker, default_environment
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.version import parse as parse_version
 
+from odoo_venv.modes import KnownIssue, Mode, load_modes
+
 PKG_NAME_PATTERN = re.compile(r"(?P<lib_name>[a-z0-9A-Z\-\_\.]+)((>|<|=)=)?(.*)")
 
 VALID_STAGES = {"after_venv", "after_requirements", "after_odoo_install"}
@@ -428,11 +430,12 @@ def _extract_failed_package(stderr: str) -> str | None:
     return None
 
 
-def _install_requirements_with_retry(
+def _install_requirements_with_retry(  # noqa: C901
     tmp_path: str,
     venv_dir: Path,
     verbose: bool,
     max_retries: int = 10,
+    known_issues: list[KnownIssue] | None = None,
 ) -> list[str]:
     """Attempt to install requirements, skipping packages that fail to install.
 
@@ -466,6 +469,9 @@ def _install_requirements_with_retry(
 
             pkg = _extract_failed_package(exc.stderr)
             if pkg is not None:
+                if known_issues:
+                    _check_known_issues(pkg, known_issues, exc.stderr)
+
                 # Normalise name: treat hyphens, underscores and dots as equivalent
                 # so that e.g. "rfc6266-parser" matches "rfc6266_parser" in the file.
                 pkg_normalized = re.sub(r"[-_.]", "-", pkg.lower())
@@ -606,11 +612,52 @@ def _find_manifest_files(addons_paths: list[str]) -> list[Path]:
     return manifest_files
 
 
+def _resolve_mode_overrides(
+    mode: Mode,
+    odoo_version: str,
+    python_version: str | None,
+) -> tuple[list[str], list[str]]:
+    """Evaluate mode overrides and return (ignore_lines, extra_req_lines).
+
+    For uncapped strategy, returns empty lists (specifier stripping
+    happens in _process_requirement_line).
+    """
+    if mode.strategy == "uncapped":
+        return [], []
+
+    ignore_lines: list[str] = []
+    extra_reqs: list[str] = []
+    for override in mode.overrides:
+        if not _evaluate_marker(override.when, odoo_version, python_version):
+            continue
+        ignore_lines.extend(override.ignore)
+        extra_reqs.extend(override.install)
+
+    return ignore_lines, extra_reqs
+
+
+def _check_known_issues(
+    failed_package: str,
+    known_issues: list[KnownIssue],
+    stderr: str,
+) -> None:
+    """If failed_package matches a known_issue, print suggestion."""
+    pkg_normalized = re.sub(r"[-_.]", "-", failed_package.lower())
+    for issue in known_issues:
+        issue_pkg = re.sub(r"[-_.]", "-", issue.package.lower())
+        if issue_pkg == pkg_normalized and re.search(issue.error_pattern, stderr):
+            typer.secho(f"\n  Known incompatibility: {issue.suggestion}", fg=typer.colors.YELLOW)
+            if issue.link:
+                typer.secho(f"  See: {issue.link}", fg=typer.colors.YELLOW)
+            return
+
+
 def _process_requirement_line(
     req_line: str,
     ignored_req_map: dict,
     tmp_file,
     target_env_for_markers: dict[str, str],
+    strip_specifiers: bool = False,
 ) -> bool:
     req_line = req_line.strip()
     if not req_line or req_line.startswith("#"):
@@ -635,9 +682,12 @@ def _process_requirement_line(
 
         if should_ignore:
             return False
+
+        if strip_specifiers:
+            tmp_file.write(f"{req.name}\n")
         else:
             tmp_file.write(valid_line + "\n")
-            return True
+        return True  # noqa: TRY300
 
     except InvalidRequirement:
         match = PKG_NAME_PATTERN.match(req_line)
@@ -664,6 +714,7 @@ def create_odoo_venv(  # noqa: C901
     extra_requirements_file: str | None = None,
     extra_requirements: list[str] | None = None,
     extra_commands: list[dict] | None = None,
+    mode: str = "conservative",
     verbose: bool = False,
     skip_on_failure: bool = False,
     force: bool = False,
@@ -766,6 +817,38 @@ def create_odoo_venv(  # noqa: C901
         ignore_req_lines.extend([
             pkg.strip() for pkg in ignore_from_addons_manifests_requirements.split(",") if pkg.strip()
         ])
+
+    # Resolve mode: load once, derive all mode-specific settings
+    _active_mode = load_modes().get(mode)
+
+    if verbose and _active_mode:
+        typer.secho(f"\nMode '{mode}': {_active_mode.description}", fg=typer.colors.GREEN)
+        typer.secho(f"  Strategy: {_active_mode.strategy}", fg=typer.colors.CYAN)
+        if _active_mode.overrides:
+            typer.secho(f"  Overrides: {len(_active_mode.overrides)} package(s)", fg=typer.colors.CYAN)
+            for o in _active_mode.overrides:
+                parts = []
+                if o.ignore:
+                    parts.append(f"ignore {', '.join(o.ignore)}")
+                if o.install:
+                    parts.append(f"install {', '.join(o.install)}")
+                when_info = f" (when: {o.when})" if o.when else ""
+                reason_info = f" — {o.reason}" if o.reason else ""
+                typer.secho(f"    • {o.package}: {'; '.join(parts)}{when_info}{reason_info}", fg=typer.colors.CYAN)
+        if _active_mode.known_issues:
+            typer.secho(f"  Known issues: {len(_active_mode.known_issues)}", fg=typer.colors.CYAN)
+        if _active_mode.extra_commands:
+            typer.secho(f"  Extra commands: {len(_active_mode.extra_commands)}", fg=typer.colors.CYAN)
+
+    if _active_mode:
+        mode_ignore_lines, mode_extra_reqs = _resolve_mode_overrides(_active_mode, odoo_version, python_version)
+        ignore_req_lines.extend(mode_ignore_lines)
+        extra_requirements = (extra_requirements or []) + mode_extra_reqs
+        if _active_mode.extra_commands:
+            extra_commands = (extra_commands or []) + _active_mode.extra_commands
+
+    _known_issues = _active_mode.known_issues if _active_mode else []
+    strip_specifiers = _active_mode.strategy == "uncapped" if _active_mode else False
 
     ignored_req_map = defaultdict(list)
     for req_line in ignore_req_lines:
@@ -873,12 +956,16 @@ def create_odoo_venv(  # noqa: C901
             for req_file in all_req_files:
                 with open(req_file, encoding="utf-8") as f:
                     for line in f:
-                        if _process_requirement_line(line, ignored_req_map, tmp, target_env_for_markers):
+                        if _process_requirement_line(
+                            line, ignored_req_map, tmp, target_env_for_markers, strip_specifiers=strip_specifiers
+                        ):
                             req_count += 1
 
         if extra_requirements:
             for req_line in extra_requirements:
-                if _process_requirement_line(req_line, {}, tmp, target_env_for_markers):
+                if _process_requirement_line(
+                    req_line, {}, tmp, target_env_for_markers, strip_specifiers=strip_specifiers
+                ):
                     req_count += 1
 
         if extra_requirements_file:
@@ -886,7 +973,9 @@ def create_odoo_venv(  # noqa: C901
             if extra_req_file.exists():
                 with open(extra_req_file, encoding="utf-8") as f:
                     for line in f:
-                        if _process_requirement_line(line, {}, tmp, target_env_for_markers):
+                        if _process_requirement_line(
+                            line, {}, tmp, target_env_for_markers, strip_specifiers=strip_specifiers
+                        ):
                             req_count += 1
 
         if manifest_files:
@@ -900,6 +989,7 @@ def create_odoo_venv(  # noqa: C901
                             ignored_req_map,
                             tmp,
                             target_env_for_markers,
+                            strip_specifiers=strip_specifiers,
                         ):
                             req_count += 1
 
@@ -922,7 +1012,9 @@ def create_odoo_venv(  # noqa: C901
                     typer.secho(f"      - {req}", fg=typer.colors.CYAN)
 
         if skip_on_failure:
-            skipped = _install_requirements_with_retry(tmp_path, venv_dir=venv_dir, verbose=verbose)
+            skipped = _install_requirements_with_retry(
+                tmp_path, venv_dir=venv_dir, verbose=verbose, known_issues=_known_issues
+            )
             if skipped:
                 typer.secho(
                     f"  ⚠  Skipped {len(skipped)} package(s) due to installation failure: "

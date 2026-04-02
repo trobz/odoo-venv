@@ -26,6 +26,7 @@ VENV_CONFIG_ARG_KEYS: tuple[str, ...] = (
     "skip_on_failure",
     "create_launcher",
     "project_dir",
+    "mode",
 )
 
 
