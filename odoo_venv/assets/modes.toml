@@ -90,6 +90,27 @@ install = ["urllib3>=1.26.14"]
 when = "odoo_version >= '15.0' and python_version < '3.12'"
 reason = "Floor version, let resolver pick latest compatible"
 
+# pyldap / python-ldap — fail to build on OpenLDAP 2.5+ (libldap_r removed).
+# Odoo 12 uses pyldap (unmaintained); Odoo 13+ uses python-ldap.
+# See: https://github.com/odoo/odoo/issues/40069
+#      https://github.com/odoo/odoo/pull/109217
+
+# Odoo 12: pyldap is dead, replace with python-ldap
+[[modern.overrides]]
+package = "pyldap"
+ignore = ["pyldap"]
+install = ["python-ldap>=3.4.2"]
+when = "odoo_version == '12.0' and sys_platform != 'win32'"
+reason = "pyldap unmaintained, fails on OpenLDAP 2.5+ (libldap_r removed)"
+
+# Odoo 13–17: python-ldap 3.4.0 hardcodes -lldap_r
+[[modern.overrides]]
+package = "python-ldap"
+ignore = ["python-ldap==3.4.0"]
+install = ["python-ldap>=3.4.2"]
+when = "odoo_version >= '13.0' and odoo_version <= '17.0' and sys_platform != 'win32'"
+reason = "3.4.0 hardcodes -lldap_r removed in OpenLDAP 2.5+"
+
 [bleeding-edge]
 description = "No version caps, discover breakage"
 strategy = "uncapped"
