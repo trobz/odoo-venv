@@ -94,7 +94,8 @@ extra_requirement = """
 gevent==22.10.2; sys_platform == 'linux' and python_version == '3.10',
 greenlet==2.0.2; sys_platform == 'linux' and python_version == '3.10',
 urllib3==1.26.14; python_version > '3.9' and python_version < '3.12',
-psycopg2==2.8.3; sys_platform != 'win32' and python_version < '3.8'
+psycopg2==2.8.3; sys_platform != 'win32' and python_version < '3.8',
+click-odoo-contrib==1.23.1
 """
 
 # always ignore those exotic requirements unless explicitely added
