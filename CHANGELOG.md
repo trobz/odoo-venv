@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v1.17.0 (2026-04-08)
+
+### Features
+
+- **cli**: Add `activate` command to spawn shell with venv activated
+  ([`e42c0c9`](https://github.com/trobz/odoo-venv/commit/e42c0c9e6573c1db196acc3dd667f1864dfed2bf))
+
+- **presets**: Add click-odoo-contrib dependency to all presets
+  ([`eb50aae`](https://github.com/trobz/odoo-venv/commit/eb50aae5c01033ce92e2fc937eed686bb7b7e71d))
+
+
 ## v1.16.1 (2026-04-02)
 
 ### Bug Fixes
