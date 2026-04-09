@@ -13,6 +13,10 @@ inputs:
   oca_repos:
     description: OCA repos
     required: true
+  addons_subdirectory:
+    description: Subdirectory within the addons repository containing the addons (optional)
+    required: false
+    default: ""
 
 runs:
   using: "composite"
@@ -40,6 +44,7 @@ runs:
       run: |
         echo "ODOO_VERSION=${{ inputs.odoo_version }}" >> $GITHUB_ENV
         echo "OCA_REPOS=${{ inputs.oca_repos }}" >> $GITHUB_ENV
+        echo "ADDONS_DIR=${{ github.workspace }}/addons${{ inputs.addons_subdirectory && format('/{0}', inputs.addons_subdirectory) || '' }}" >> $GITHUB_ENV
 
     - name: Bootstrap local.py
       shell: bash
@@ -89,7 +94,7 @@ runs:
     - name: Create Odoo virtual environment
       shell: bash
       run: |
-        ADDONS_PATH=$(odoo-addons-path --addons-dir="~/code/oca/$ODOO_VERSION/*" --addons-dir=${{ github.workspace }}/addons)
+        ADDONS_PATH=$(odoo-addons-path --addons-dir="~/code/oca/$ODOO_VERSION/*" --addons-dir=$ADDONS_DIR)
         odoo-venv create --verbose \
           --preset ci \
           --odoo-dir ~/code/odoo/odoo/$ODOO_VERSION \
@@ -101,8 +106,8 @@ runs:
     - name: Initialize test database
       shell: bash
       run: |
-        ADDONS_PATH=$(odoo-addons-path --odoo-dir="~/code/odoo/odoo/$ODOO_VERSION" --addons-dir="~/code/oca/$ODOO_VERSION/*" --addons-dir=${{ github.workspace }}/addons)
-        ADDONS=$(manifestoo --addons-path ${{ github.workspace }}/addons --select-found --odoo-series $ODOO_VERSION list --separator=,)
+        ADDONS_PATH=$(odoo-addons-path --odoo-dir="~/code/odoo/odoo/$ODOO_VERSION" --addons-dir="~/code/oca/$ODOO_VERSION/*" --addons-dir=$ADDONS_DIR)
+        ADDONS=$(manifestoo --addons-path $ADDONS_DIR --select-found --odoo-series $ODOO_VERSION list --separator=,)
         unbuffer odoo-v${ODOO_VERSION%%.*} -d test_db \
           --addons-path="$ADDONS_PATH" \
           -i $ADDONS \
@@ -111,8 +116,8 @@ runs:
     - name: Run tests
       shell: bash
       run: |
-        ADDONS_PATH=$(odoo-addons-path --odoo-dir="~/code/odoo/odoo/$ODOO_VERSION" --addons-dir="~/code/oca/$ODOO_VERSION/*" --addons-dir=${{ github.workspace }}/addons)
-        ADDONS=$(manifestoo --addons-path ${{ github.workspace }}/addons --select-found --odoo-series $ODOO_VERSION list --separator=,)
+        ADDONS_PATH=$(odoo-addons-path --odoo-dir="~/code/odoo/odoo/$ODOO_VERSION" --addons-dir="~/code/oca/$ODOO_VERSION/*" --addons-dir=$ADDONS_DIR)
+        ADDONS=$(manifestoo --addons-path $ADDONS_DIR --select-found --odoo-series $ODOO_VERSION list --separator=,)
         unbuffer odoo-v${ODOO_VERSION%%.*} -d test_db \
           --addons-path="$ADDONS_PATH" \
           -i $ADDONS \
