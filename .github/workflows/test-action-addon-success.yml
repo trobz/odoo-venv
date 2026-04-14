@@ -1,0 +1,23 @@
+name: test-action | addon-success
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  test-addons-repo-success:
+    name: addon installs and tests pass
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./
+        with:
+          odoo_version: "18.0"
+          python_version: "3.10"
+          oca_repos: "queue"
+          addons_subdirectory: tests/fixtures/addon-success

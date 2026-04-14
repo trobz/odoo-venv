@@ -1,0 +1,126 @@
+name: tests
+description: Run tests
+
+inputs:
+  python_version:
+    description: Python version
+    required: true
+    default: "3.12"
+  odoo_version:
+    description: Odoo version
+    required: true
+    default: "19.0"
+  oca_repos:
+    description: OCA repos
+    required: true
+  addons_subdirectory:
+    description: Subdirectory within the addons repository containing the addons (optional)
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+
+  steps:
+    - name: Cache uv binary
+      uses: actions/cache@v4
+      with:
+        path: /opt/hostedtoolcache/uv
+        key: uv-binary-${{ runner.os }}-0.10.8
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v6
+      with:
+        version: "0.10.8"
+        enable-cache: true
+        ignore-empty-workdir: true
+
+    - name: Enable unbuffer command
+      shell: bash
+      run: sudo apt install expect
+
+    - name: Set environment variables
+      shell: bash
+      run: |
+        echo "ODOO_VERSION=${{ inputs.odoo_version }}" >> $GITHUB_ENV
+        echo "OCA_REPOS=${{ inputs.oca_repos }}" >> $GITHUB_ENV
+        echo "ADDONS_DIR=${{ github.workspace }}/addons${{ inputs.addons_subdirectory && format('/{0}', inputs.addons_subdirectory) || '' }}" >> $GITHUB_ENV
+
+    - name: Bootstrap local.py
+      shell: bash
+      run: |
+        mkdir -p ~/code
+        git config --global url."https://github.com/".insteadOf "git@github.com:"
+        curl -fsSL https://raw.githubusercontent.com/trobz/local.py/main/bootstrap.sh | bash
+        OCA_REPOS_ARRAY=$(echo "$OCA_REPOS" | tr ' ' '\n' | awk '{print "\"" $0 "\""}' | paste -sd, -)
+        cat > ~/code/config.toml << EOF
+        versions = ["$ODOO_VERSION"]
+
+        [tools]
+        uv = ["odoo-venv", "odoo-addons-path", "manifestoo", "checklog-odoo"]
+        system_packages = ["postgresql"]
+
+        [repos]
+        odoo = ["odoo"]
+        oca = [$OCA_REPOS_ARRAY]
+        EOF
+        tlc --yes install-tools
+        tlc --yes init
+        echo "TODAY=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+
+    - name: Cache Odoo ${{ env.ODOO_VERSION }}
+      uses: actions/cache@v4
+      with:
+        path: ~/code/odoo/odoo/${{ env.ODOO_VERSION }}
+        key: odoo-${{ env.ODOO_VERSION }}-${{ runner.os }}-${{ env.TODAY }}
+
+    - name: Pull repos
+      shell: bash
+      run: tlc --yes pull-repos
+
+    - name: Start PostgreSQL
+      shell: bash
+      run: sudo systemctl start postgresql
+
+    - name: Ensure DB user
+      shell: bash
+      run: tlc --yes ensure-db-user
+
+    - name: Check out addons
+      uses: actions/checkout@v4
+      with:
+        path: addons
+
+    - name: Create Odoo virtual environment
+      shell: bash
+      run: |
+        ADDONS_PATH=$(odoo-addons-path --addons-dir="~/code/oca/$ODOO_VERSION/*" --addons-dir=$ADDONS_DIR)
+        odoo-venv create --verbose \
+          --preset ci \
+          --odoo-dir ~/code/odoo/odoo/$ODOO_VERSION \
+          --venv-dir ~/code/venvs/$ODOO_VERSION \
+          --python-version ${{ inputs.python_version }} \
+          --create-launcher \
+          --addons-path="$ADDONS_PATH"
+
+    - name: Initialize test database
+      shell: bash
+      run: |
+        ADDONS_PATH=$(odoo-addons-path --odoo-dir="~/code/odoo/odoo/$ODOO_VERSION" --addons-dir="~/code/oca/$ODOO_VERSION/*" --addons-dir=$ADDONS_DIR)
+        ADDONS=$(manifestoo --addons-path $ADDONS_DIR --select-found --odoo-series $ODOO_VERSION list --separator=,)
+        unbuffer odoo-v${ODOO_VERSION%%.*} -d test_db \
+          --addons-path="$ADDONS_PATH" \
+          -i $ADDONS \
+          --stop-after-init | checklog-odoo --ignore "WARNING.*(DeprecationWarning|Transient)"
+
+    - name: Run tests
+      shell: bash
+      run: |
+        ADDONS_PATH=$(odoo-addons-path --odoo-dir="~/code/odoo/odoo/$ODOO_VERSION" --addons-dir="~/code/oca/$ODOO_VERSION/*" --addons-dir=$ADDONS_DIR)
+        ADDONS=$(manifestoo --addons-path $ADDONS_DIR --select-found --odoo-series $ODOO_VERSION list --separator=,)
+        unbuffer odoo-v${ODOO_VERSION%%.*} -d test_db \
+          --addons-path="$ADDONS_PATH" \
+          -i $ADDONS \
+          --test-enable \
+          --stop-after-init \
+          --log-level=test | checklog-odoo --ignore "WARNING.*(DeprecationWarning|Transient)"

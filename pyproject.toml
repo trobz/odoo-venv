@@ -41,6 +41,9 @@ module-root = ""
 [project.optional-dependencies]
 build = ["uv ~= 0.7.12"]
 
+[tool.pytest.ini_options]
+norecursedirs = ["tests/fixtures", ".claude"]
+
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
 build_command = """

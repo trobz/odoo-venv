@@ -1,0 +1,33 @@
+name: test-action | addon-tests-failing
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  test-addons-repo-tests-failing:
+    name: addon installs but tests fail → action must fail
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./
+        id: run-action
+        continue-on-error: true
+        with:
+          odoo_version: "18.0"
+          python_version: "3.10"
+          oca_repos: "queue"
+          addons_subdirectory: tests/fixtures/addon-failing-test
+
+      - name: Assert action failed
+        run: |
+          if [ "${{ steps.run-action.outcome }}" != "failure" ]; then
+            echo "Expected the action to fail on test failure, but outcome was: ${{ steps.run-action.outcome }}"
+            exit 1
+          fi
+          echo "Action correctly failed on failing test."
