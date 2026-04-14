@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v1.18.0 (2026-04-14)
+
+### Bug Fixes
+
+- **ci**: Exclude test fixtures from ty type checking
+  ([`1509185`](https://github.com/trobz/odoo-venv/commit/15091859aad16058cbeb6275afc105d989f433d8))
+
+- **test**: Exclude fixtures and worktrees from pytest collection
+  ([`bd46553`](https://github.com/trobz/odoo-venv/commit/bd46553ae14eb77c561889e74629cad054363b7c))
+
+### Features
+
+- Add automated tests for action.yml
+  ([`3a1c501`](https://github.com/trobz/odoo-venv/commit/3a1c501cce8fc3542ea589f741b03d9a578f9b03))
+
+- Add composite github action
+  ([`df2c6b6`](https://github.com/trobz/odoo-venv/commit/df2c6b6c826ac9aff707ad8720b25a69cf22d078))
+
+
 ## v1.17.0 (2026-04-08)
 
 ### Features
