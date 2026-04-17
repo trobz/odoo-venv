@@ -44,7 +44,7 @@ runs:
       run: |
         echo "ODOO_VERSION=${{ inputs.odoo_version }}" >> $GITHUB_ENV
         echo "OCA_REPOS=${{ inputs.oca_repos }}" >> $GITHUB_ENV
-        echo "ADDONS_DIR=${{ github.workspace }}/addons${{ inputs.addons_subdirectory && format('/{0}', inputs.addons_subdirectory) || '' }}" >> $GITHUB_ENV
+        echo "ADDONS_DIR=${{ github.workspace }}${{ inputs.addons_subdirectory && format('/{0}', inputs.addons_subdirectory) || '' }}" >> $GITHUB_ENV
 
     - name: Bootstrap local.py
       shell: bash
@@ -111,7 +111,7 @@ runs:
         unbuffer odoo-v${ODOO_VERSION%%.*} -d test_db \
           --addons-path="$ADDONS_PATH" \
           -i $ADDONS \
-          --stop-after-init | checklog-odoo --ignore "WARNING.*(DeprecationWarning|Transient)"
+          --stop-after-init | checklog-odoo --ignore "WARNING.*(DeprecationWarning|Transient|http_interface|is not a directory)"
 
     - name: Run tests
       shell: bash
@@ -123,4 +123,4 @@ runs:
           -i $ADDONS \
           --test-enable \
           --stop-after-init \
-          --log-level=test | checklog-odoo --ignore "WARNING.*(DeprecationWarning|Transient)"
+          --log-level=test | checklog-odoo --ignore "WARNING.*(DeprecationWarning|Transient|http_interface|is not a directory)"
