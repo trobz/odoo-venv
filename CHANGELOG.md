@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.20.0 (2026-04-20)
+
+### Features
+
+- Add list command to discover and display Odoo venvs
+  ([`9896ba7`](https://github.com/trobz/odoo-venv/commit/9896ba7b13247b85e91685853dc95851f39e0165))
+
+
 ## v1.19.0 (2026-04-20)
 
 ### Features
