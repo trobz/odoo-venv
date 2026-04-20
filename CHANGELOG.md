@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.19.0 (2026-04-20)
+
+### Features
+
+- Add show command
+  ([`748dc34`](https://github.com/trobz/odoo-venv/commit/748dc3452cd50bc2a4fff901cde2a76df1edb1ed))
+
+
 ## v1.18.0 (2026-04-14)
 
 ### Bug Fixes
