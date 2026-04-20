@@ -1,5 +1,6 @@
 import concurrent.futures
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -17,6 +18,7 @@ from odoo_addons_path import (
     get_odoo_version_from_release,
 )
 from rich.console import Console
+from rich.table import Table
 
 from odoo_venv.exceptions import PresetNotFoundError
 from odoo_venv.launcher import create_launcher
@@ -634,6 +636,32 @@ def _freeze_venv(venv_dir: Path) -> dict[str, str]:
             name, ver = line.split("==", 1)
             pkgs[re.sub(r"[-_.]+", "-", name).lower()] = ver
     return pkgs
+
+
+SKIP_DIRS = {".git", "node_modules", "__pycache__", ".tox", ".nox", ".mypy_cache", ".ruff_cache"}
+
+
+def _discover_venvs(root: Path) -> list[Path]:
+    venvs: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root, topdown=True):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        if VENV_CONFIG_FILENAME in filenames:
+            venvs.append(Path(dirpath))
+            dirnames.clear()  # don't descend into venv internals
+    return sorted(venvs)
+
+
+def _read_venv_info(venv_dir: Path) -> dict[str, str]:
+    """Read display info from ``.odoo-venv.toml``.
+
+    Returns a dict with keys: ``python``, ``odoo``, ``preset``.
+    """
+    args, metadata, _requirements, _ignored = read_venv_config(venv_dir)
+    return {
+        "python": str(args.get("python_version", "")) or "N/A",
+        "odoo": metadata.get("odoo_version", "") or "N/A",
+        "preset": str(args.get("preset", "")),
+    }
 
 
 def _freeze_remote_venv(host: str, remote_path: str) -> dict[str, str]:
@@ -1305,3 +1333,28 @@ def show(
     if ignored:
         console.print()
         _print_ignored_panel(console, ignored)
+
+
+@app.command("list")
+def list_venvs():
+    """List virtual environments found under the current directory."""
+
+    root = Path.cwd()
+    venvs = _discover_venvs(root)
+
+    if not venvs:
+        typer.secho("No virtual environments found.", fg=typer.colors.YELLOW)
+        raise typer.Exit(0)
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("PATH")
+    table.add_column("PYTHON")
+    table.add_column("ODOO")
+    table.add_column("PRESET")
+
+    for venv_dir in venvs:
+        rel_path = f"./{venv_dir.relative_to(root)}"
+        info = _read_venv_info(venv_dir)
+        table.add_row(rel_path, info["python"], info["odoo"], info["preset"])
+
+    Console().print(table)
