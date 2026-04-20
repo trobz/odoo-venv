@@ -137,7 +137,7 @@ def load_presets() -> dict[str, Preset]:
     return {name: Preset.from_dict(options) for name, options in presets_data.items()}
 
 
-def _format_toml_value(value: str | bool) -> str:
+def _format_toml_value(value: str | bool | list[str]) -> str:
     """Format a Python value as a TOML literal.
 
     >>> _format_toml_value(True)
@@ -146,6 +146,10 @@ def _format_toml_value(value: str | bool) -> str:
     'false'
     >>> _format_toml_value("hello")
     '"hello"'
+    >>> _format_toml_value(["odoo", "manifest:sale"])
+    '["odoo", "manifest:sale"]'
+    >>> _format_toml_value([])
+    '[]'
     >>> _format_toml_value('path\\\\with"quotes')
     '"path\\\\\\\\with\\\\"quotes"'
     >>> _format_toml_value("line1\\nline2")
@@ -153,6 +157,9 @@ def _format_toml_value(value: str | bool) -> str:
     """
     if isinstance(value, bool):
         return "true" if value else "false"
+    if isinstance(value, list):
+        items = ", ".join(_format_toml_value(item) for item in value)
+        return f"[{items}]"
     # Escape backslashes first, then characters illegal in TOML basic strings
     escaped = (
         value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
@@ -164,6 +171,9 @@ def write_venv_config(
     venv_dir: Path,
     args: dict[str, str | bool],
     odoo_version: str,
+    *,
+    requirements: dict[str, list[str]] | None = None,
+    ignored: dict[str, list[str]] | None = None,
 ) -> Path:
     """Write .odoo-venv.toml to *venv_dir* with the given args and metadata.
 
@@ -179,15 +189,31 @@ def write_venv_config(
         if key in args:
             lines.append(f"{key} = {_format_toml_value(args[key])}")
 
+    if requirements:
+        lines.append("")
+        lines.append("[requirements]")
+        for pkg_name in sorted(requirements):
+            lines.append(f"{pkg_name} = {_format_toml_value(requirements[pkg_name])}")
+
+    if ignored:
+        lines.append("")
+        lines.append("[ignored]")
+        for pkg_name in sorted(ignored):
+            # Quote keys that contain TOML-special characters (e.g. "lxml==4.9.0")
+            key = f'"{pkg_name}"' if any(c in pkg_name for c in '=.,"[]') else pkg_name
+            lines.append(f"{key} = {_format_toml_value(ignored[pkg_name])}")
+
     config_path = venv_dir / VENV_CONFIG_FILENAME
     config_path.write_text("\n".join(lines) + "\n")
     return config_path
 
 
-def read_venv_config(path: Path) -> tuple[dict[str, str | bool], dict[str, str]]:
+def read_venv_config(
+    path: Path,
+) -> tuple[dict[str, str | bool], dict[str, str], dict[str, list[str]], dict[str, list[str]]]:
     """Read .odoo-venv.toml from *path* (directory or file).
 
-    Returns ``(args_dict, metadata_dict)``.
+    Returns ``(args_dict, metadata_dict, requirements_dict, ignored_dict)``.
     Raises ``FileNotFoundError`` if the config file doesn't exist.
     """
     if path.is_dir():
@@ -196,4 +222,4 @@ def read_venv_config(path: Path) -> tuple[dict[str, str | bool], dict[str, str]]
         raise FileNotFoundError(path)
     with open(path, "rb") as f:
         data = tomli.load(f)
-    return data.get("args", {}), data.get("metadata", {})
+    return data.get("args", {}), data.get("metadata", {}), data.get("requirements", {}), data.get("ignored", {})

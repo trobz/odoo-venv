@@ -3,6 +3,7 @@ from unittest.mock import patch
 from typer.testing import CliRunner
 
 from odoo_venv.cli.main import app
+from odoo_venv.main import VenvResult
 from odoo_venv.utils import write_venv_config
 
 runner = CliRunner()
@@ -49,6 +50,7 @@ class TestUpdateCommand:
         def _side_effect(**kwargs):
             tmp_venv.mkdir(exist_ok=True)
             (tmp_venv / "pyvenv.cfg").write_text("uv = 0.7.0\n")
+            return VenvResult()
 
         mock_create.side_effect = _side_effect
         # Confirm the interactive prompt with "y"
@@ -76,6 +78,7 @@ class TestUpdateCommand:
         def _side_effect(**kwargs):
             tmp_venv.mkdir(exist_ok=True)
             (tmp_venv / "pyvenv.cfg").write_text("uv = 0.7.0\n")
+            return VenvResult()
 
         mock_create.side_effect = _side_effect
         result = runner.invoke(app, ["update", str(venv_dir), "--backup"], input="y\n")
@@ -92,6 +95,7 @@ class TestUpdateCommand:
         def _side_effect(**kwargs):
             tmp_venv.mkdir(exist_ok=True)
             (tmp_venv / "pyvenv.cfg").write_text("uv = 0.7.0\n")
+            return VenvResult()
 
         mock_create.side_effect = _side_effect
         result = runner.invoke(app, ["update", str(venv_dir), "--no-backup"], input="y\n")
@@ -108,6 +112,7 @@ class TestUpdateCommand:
         def _side_effect(**kwargs):
             tmp_venv.mkdir(exist_ok=True)
             (tmp_venv / "pyvenv.cfg").write_text("uv = 0.7.0\n")
+            return VenvResult()
 
         mock_create.side_effect = _side_effect
         result = runner.invoke(app, ["update", str(venv_dir)], input="n\n")
