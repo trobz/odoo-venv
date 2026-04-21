@@ -1,0 +1,25 @@
+# odoo-venv
+
+> CLI tool to spin up isolated Odoo dev environments in seconds. Handles Python version selection, dependency resolution, preset-based configuration, and launcher script generation.
+
+## Getting Started
+
+- [Getting Started](site-docs/docs/getting-started.md): Install odoo-venv and create your first Odoo environment using the CLI or presets.
+
+## CLI Reference
+
+- [odoo-venv create](site-docs/docs/reference/page-1.md): Full options reference for creating a virtual environment — venv path, Odoo source, addons, presets, install controls, ignore lists, and extra packages.
+- [odoo-venv compare](site-docs/docs/reference/page-2.md): Compare installed package versions across multiple virtual environments, with optional PyPI "latest" column.
+- [odoo-venv create-odoo-launcher](site-docs/docs/reference/page-3.md): Generate a `~/.local/bin/odoo-vXX` launcher script that activates the venv and runs Odoo.
+
+## Known Dependency Problems
+
+- [Overview](site-docs/docs/known-dependency-problem/index.md): Common Odoo dependency problems and how odoo-venv handles them automatically.
+- [Import Name vs Package Name](site-docs/docs/known-dependency-problem/import-name-vs-package-name.md): Why addon manifests use import names (e.g. `git`) but pip needs the real package name (e.g. `GitPython`), with a full mapping table.
+- [Version Conflicts](site-docs/docs/known-dependency-problem/version-conflicts.md): Odoo pins exact dependency versions that conflict with addon requirements — how odoo-venv resolves them.
+- [Build Isolation Errors](site-docs/docs/known-dependency-problem/build-isolation-errors.md): Why legacy packages like `suds-jurko` fail with `use_2to3 is invalid` and how `--no-build-isolation` fixes it.
+- [Transitive Dependency Issues](site-docs/docs/known-dependency-problem/transitive-dependency-issues.md): When installing a package pulls in a broken transitive dependency and how odoo-venv handles the chain.
+
+## Optional
+
+- [Changelog](CHANGELOG.md): Version history and release notes.
