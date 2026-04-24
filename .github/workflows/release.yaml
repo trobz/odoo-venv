@@ -23,7 +23,7 @@ jobs:
     steps:
 
       - name: Checkout Repository on Release Branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.ref_name }}
 
@@ -56,7 +56,7 @@ jobs:
 
     steps:
       - name: Check out at new tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.release.outputs.tag }}
 
