@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.20.1 (2026-05-06)
+
+### Bug Fixes
+
+- **action.yml**: Remove invalid addons, ignore more warning
+  ([`aad32e8`](https://github.com/trobz/odoo-venv/commit/aad32e80e64331b6947a62757104dac8c2fe9ad6))
+
+
 ## v1.20.0 (2026-04-20)
 
 ### Features
