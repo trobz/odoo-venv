@@ -55,7 +55,7 @@ jobs:
       # Cache the uv binary in GitHub Actions tool-cache so setup-uv
       # finds it and skips downloading from GitHub Releases.
       - name: Cache uv binary
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /opt/hostedtoolcache/uv
           key: uv-binary-${{ runner.os }}-0.10.8
@@ -63,7 +63,7 @@ jobs:
       # Pre-install uv via official action with caching to avoid
       # downloading from GitHub Releases on every matrix job.
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           version: "0.10.8"
           enable-cache: true
@@ -92,7 +92,7 @@ jobs:
       # The key includes the date so the cache is invalidated daily,
       # ensuring we always test against a fresh Odoo clone each day.
       - name: Cache Odoo ${{ matrix.odoo_version }}
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/code/odoo/odoo/${{ matrix.odoo_version }}
           key: odoo-${{ matrix.odoo_version }}-${{ runner.os }}-${{ env.TODAY }}
@@ -101,7 +101,7 @@ jobs:
         run: tlc --yes pull-repos
 
       - name: Check out odoo-venv
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install odoo-venv
         run: uv tool install .
@@ -183,13 +183,13 @@ jobs:
       # Cache the uv binary in GitHub Actions tool-cache so setup-uv
       # finds it and skips downloading from GitHub Releases.
       - name: Cache uv binary
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /opt/hostedtoolcache/uv
           key: uv-binary-${{ runner.os }}-0.10.8
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           version: "0.10.8"
           enable-cache: true
@@ -216,7 +216,7 @@ jobs:
       # Combined cache for Odoo source + OCA repos.
       # Falls back to the Odoo-only cache produced by the test-native job on first run.
       - name: Cache repos ${{ matrix.odoo_version }}
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/code/odoo/odoo/${{ matrix.odoo_version }}
@@ -231,7 +231,7 @@ jobs:
         run: tlc --yes pull-repos
 
       - name: Check out odoo-venv
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install odoo-venv
         run: uv tool install .
