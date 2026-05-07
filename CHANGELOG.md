@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.20.2 (2026-05-07)
+
+### Bug Fixes
+
+- **action.yml**: Ease recognizing addons, fix test step
+  ([`cb18776`](https://github.com/trobz/odoo-venv/commit/cb187764e6c469e4a62dec70a8c871515a343279))
+
+
 ## v1.20.1 (2026-05-06)
 
 ### Bug Fixes
