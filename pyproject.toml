@@ -28,6 +28,7 @@ dev = [
 
 [project.scripts]
 odoo-venv = "odoo_venv.cli.main:app"
+ovx = "odoo_venv.cli.ovx_cmd:app"
 
 
 [build-system]
@@ -42,7 +43,7 @@ module-root = ""
 build = ["uv ~= 0.7.12"]
 
 [tool.pytest.ini_options]
-norecursedirs = ["tests/fixtures", ".claude"]
+norecursedirs = ["tests/fixtures", "tests/ovx_fixtures", ".claude"]
 
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
