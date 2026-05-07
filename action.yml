@@ -22,6 +22,11 @@ runs:
   using: "composite"
 
   steps:
+    - name: Check out addons
+      uses: actions/checkout@v6
+      with:
+        path: addons
+
     - name: Cache uv binary
       uses: actions/cache@v5
       with:
@@ -44,7 +49,7 @@ runs:
       run: |
         echo "ODOO_VERSION=${{ inputs.odoo_version }}" >> $GITHUB_ENV
         echo "OCA_REPOS=${{ inputs.oca_repos }}" >> $GITHUB_ENV
-        echo "ADDONS_DIR=${{ github.workspace }}${{ inputs.addons_subdirectory && format('/{0}', inputs.addons_subdirectory) || '' }}" >> $GITHUB_ENV
+        echo "ADDONS_DIR=${{ github.workspace }}/addons${{ inputs.addons_subdirectory && format('/{0}', inputs.addons_subdirectory) || '' }}" >> $GITHUB_ENV
 
     - name: Bootstrap local.py
       shell: bash
@@ -86,11 +91,6 @@ runs:
       shell: bash
       run: tlc --yes ensure-db-user
 
-    - name: Check out addons
-      uses: actions/checkout@v6
-      with:
-        path: addons
-
     - name: Create Odoo virtual environment
       shell: bash
       run: |
@@ -120,7 +120,7 @@ runs:
         ADDONS=$(manifestoo --addons-path $ADDONS_DIR --select-found --odoo-series $ODOO_VERSION list --separator=,)
         unbuffer odoo-v${ODOO_VERSION%%.*} -d test_db \
           --addons-path="$ADDONS_PATH" \
-          -i $ADDONS \
+          -u $ADDONS \
           --test-enable \
           --stop-after-init \
           --log-level=test | checklog-odoo --ignore "WARNING.*(DeprecationWarning|Transient|http_interface|is not a directory)"
