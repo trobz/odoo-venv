@@ -25,7 +25,7 @@ Does NOT handle: starting/running Odoo servers, database provisioning, OCA modul
 
 | Command | Purpose |
 |---------|---------|
-| `odoo-venv create [VERSION]` | Create a venv. Version inferred from `--odoo-dir` release.py if omitted. |
+| `odoo-venv create` | Create a venv. Version inferred from `--odoo-dir` release.py. |
 | `odoo-venv activate` | Spawn a new shell with the venv activated. |
 | `odoo-venv update` | Rebuild venv from its `.odoo-venv.toml`; shows diff; optional backup. |
 | `odoo-venv compare VENV_DIRS...` | Diff package versions across venvs/requirements files. Supports `host:path` (SSH). |
@@ -52,7 +52,7 @@ Key `create` flags (full list: `odoo-venv create --help`):
 2. Choose venv location. Default is `./.venv`; prefer a stable location like `~/code/venvs/{VERSION}` if the user works across projects.
 3. Run `odoo-venv create` with the chosen preset. Example:
    ```bash
-   odoo-venv create 17.0 \
+   odoo-venv create \
      --odoo-dir ~/code/odoo/odoo/17.0 \
      --addons-path ~/code/odoo/addons/web,~/code/odoo/addons/mail \
      --venv-dir ~/code/venvs/17.0 \
@@ -65,7 +65,7 @@ Key `create` flags (full list: `odoo-venv create --help`):
 ## Workflow: reproduce an existing venv
 
 1. Identify the source: an existing venv directory or a `.odoo-venv.toml` file.
-2. Run `odoo-venv create 17.0 --from /path/to/source --venv-dir ./.venv`. CLI flags override `--from` values.
+2. Run `odoo-venv create --from /path/to/source --venv-dir ./.venv`. CLI flags override `--from` values.
 3. Or, to rebuild in place from the venv's own saved config: `odoo-venv update /path/to/venv --backup`.
 
 ## Workflow: generate a launcher for an existing venv

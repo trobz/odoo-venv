@@ -121,11 +121,11 @@ when = ""  # always runs
 
 ```bash
 # Add pylint on top of `local`
-odoo-venv create 17.0 --preset local --extra-requirement "pylint"
+odoo-venv create --preset local --extra-requirement "pylint"
 
 # Replace the addons_path from the preset (scalar → overrides)
-odoo-venv create 17.0 --preset ci --addons-path ./addons
+odoo-venv create --preset ci --addons-path ./addons
 
 # Skip manifest reqs even though the preset enables them (boolean → overrides)
-odoo-venv create 17.0 --preset local --no-install-addons-manifests-requirements
+odoo-venv create --preset local --no-install-addons-manifests-requirements
 ```
