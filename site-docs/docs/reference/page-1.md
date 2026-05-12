@@ -13,14 +13,8 @@ tags:
 Create a virtual environment to run Odoo.
 
 ```bash
-odoo-venv create [ODOO_VERSION] [OPTIONS]
+odoo-venv create [OPTIONS]
 ```
-
-## Arguments
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `ODOO_VERSION` | No | Odoo version, e.g. `19.0`. Inferred from `--project-dir` if omitted. |
 
 ## Options
 
@@ -74,13 +68,13 @@ odoo-venv create [ODOO_VERSION] [OPTIONS]
 **Basic usage:**
 
 ```bash
-odoo-venv create 19.0 --odoo-dir ~/code/odoo/odoo/19.0
+odoo-venv create --odoo-dir ~/code/odoo/odoo/19.0
 ```
 
 **With addons and extra packages:**
 
 ```bash
-odoo-venv create 19.0 \
+odoo-venv create \
     --odoo-dir ~/code/odoo/odoo/19.0 \
     --addons-path ~/code/odoo/addons/web,~/code/odoo/addons/mail \
     --install-addons-dirs-requirements \
@@ -91,7 +85,7 @@ odoo-venv create 19.0 \
 **Using a preset:**
 
 ```bash
-odoo-venv create 19.0 --preset local
+odoo-venv create --preset local
 ```
 
 **Project directory auto-detection:**
@@ -103,5 +97,5 @@ odoo-venv create --project-dir ~/code/my-odoo-project
 **Dry run to preview:**
 
 ```bash
-odoo-venv create 19.0 --odoo-dir ~/code/odoo/odoo/19.0 --dry-run --verbose
+odoo-venv create --odoo-dir ~/code/odoo/odoo/19.0 --dry-run --verbose
 ```
