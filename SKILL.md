@@ -25,7 +25,7 @@ Does NOT handle: starting/running Odoo servers, database provisioning, OCA modul
 
 | Command | Purpose |
 |---------|---------|
-| `odoo-venv create [VERSION]` | Create a venv. Version inferred from `--odoo-dir` release.py if omitted. |
+| `odoo-venv create` | Create a venv. Version inferred from `--odoo-dir` release.py. |
 | `odoo-venv activate` | Spawn a new shell with the venv activated. |
 | `odoo-venv update` | Rebuild venv from its `.odoo-venv.toml`; shows diff; optional backup. |
 | `odoo-venv compare VENV_DIRS...` | Diff package versions across venvs/requirements files. Supports `host:path` (SSH). |
@@ -51,13 +51,15 @@ Key `create` flags (full list: `odoo-venv create --help`):
    - Purpose → maps to preset: dev → `local`, demo/showcase → `demo`, project repo → `project`, tests/CI → `ci`
 2. Choose venv location. Default is `./.venv`; prefer a stable location like `~/code/venvs/{VERSION}` if the user works across projects.
 3. Run `odoo-venv create` with the chosen preset. Example:
+
    ```bash
-   odoo-venv create 17.0 \
+   odoo-venv create \
      --odoo-dir ~/code/odoo/odoo/17.0 \
      --addons-path ~/code/odoo/addons/web,~/code/odoo/addons/mail \
      --venv-dir ~/code/venvs/17.0 \
      --preset local
    ```
+
 4. If the user wants a global shortcut, add `--create-launcher` (or run `create-odoo-launcher` afterwards). This writes `~/.local/bin/odoo-v{major}`.
 5. Verify: `odoo-v17 --version` or `odoo-venv activate --venv-dir ~/code/venvs/17.0` then `odoo --version`.
 6. If install fails on one exotic package, re-run with `--skip-on-failure` to drop it and continue.
@@ -65,7 +67,7 @@ Key `create` flags (full list: `odoo-venv create --help`):
 ## Workflow: reproduce an existing venv
 
 1. Identify the source: an existing venv directory or a `.odoo-venv.toml` file.
-2. Run `odoo-venv create 17.0 --from /path/to/source --venv-dir ./.venv`. CLI flags override `--from` values.
+2. Run `odoo-venv create --from /path/to/source --venv-dir ./.venv`. CLI flags override `--from` values.
 3. Or, to rebuild in place from the venv's own saved config: `odoo-venv update /path/to/venv --backup`.
 
 ## Workflow: generate a launcher for an existing venv
@@ -139,4 +141,4 @@ Override with `--python-version 3.11` when needed.
 
 - `references/presets.md` — Full preset options, marker syntax, extra-commands.
 - Source: `odoo_venv/assets/presets.toml`, `odoo_venv/cli/main.py`.
-- Upstream: https://github.com/trobz/odoo-venv
+- Upstream: <https://github.com/trobz/odoo-venv>
