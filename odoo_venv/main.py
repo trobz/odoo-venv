@@ -743,7 +743,7 @@ def _build_reverse_dep_map(venv_dir: Path, explicit_pkgs: set[str]) -> dict[str,
 def create_odoo_venv(  # noqa: C901
     odoo_version: str,
     odoo_dir: Path | str,
-    venv_dir: Path | str,
+    venv_dir: str,
     python_version: str | None,
     install_odoo: bool = True,
     install_odoo_requirements: bool = True,
@@ -762,7 +762,9 @@ def create_odoo_venv(  # noqa: C901
     ignore_sources: dict[str, str] | None = None,
 ) -> VenvResult:
     odoo_dir = Path(odoo_dir).expanduser().resolve()
-    venv_dir = Path(venv_dir).expanduser().resolve()
+    venv_dir_path = Path(venv_dir).expanduser().resolve()
+    home = Path.home()
+    display_venv_dir = venv_dir.replace(str(home), "~")
     odoo_reqs_path = odoo_dir / "requirements.txt"
 
     # Origin tracking dicts
@@ -805,7 +807,7 @@ def create_odoo_venv(  # noqa: C901
                 ["uv", "python", "install", python_version],
                 verbose=verbose,
             )
-    venv_command = ["uv", "venv", str(venv_dir)]
+    venv_command = ["uv", "venv", str(venv_dir_path)]
     if python_version:
         venv_command.extend(["--python", python_version])
     if force:
@@ -820,7 +822,7 @@ def create_odoo_venv(  # noqa: C901
         stderr = (exc.stderr or "").strip()
         if "already exists" in stderr:
             typer.echo(
-                f"Virtual environment already exists at {typer.style(str(venv_dir), fg=typer.colors.YELLOW)}. "
+                f"Virtual environment already exists at {typer.style(display_venv_dir, fg=typer.colors.YELLOW)}. "
                 f"Use {typer.style('--force', fg=typer.colors.CYAN)} to recreate it.",
                 file=sys.stderr,
             )
@@ -829,7 +831,7 @@ def create_odoo_venv(  # noqa: C901
         typer.echo(f"Command failed: {' '.join(venv_command)}", file=sys.stderr)
         raise typer.Exit(1) from exc
     typer.secho(
-        f"  ✔ Virtual environment created at {typer.style(str(venv_dir), fg=typer.colors.YELLOW)}",
+        f"  ✔ Virtual environment created at {typer.style(display_venv_dir, fg=typer.colors.YELLOW)}",
     )
 
     # Run extra commands for 'after_venv' stage
@@ -838,7 +840,7 @@ def create_odoo_venv(  # noqa: C901
         extra_commands,
         odoo_version,
         python_version,
-        venv_dir,
+        venv_dir_path,
         verbose,
     )
 
@@ -1078,7 +1080,7 @@ def create_odoo_venv(  # noqa: C901
                     typer.secho(f"      - {req}", fg=typer.colors.CYAN)
 
         if skip_on_failure:
-            skipped = _install_requirements_with_retry(tmp_path, venv_dir=venv_dir, verbose=verbose)
+            skipped = _install_requirements_with_retry(tmp_path, venv_dir=venv_dir_path, verbose=verbose)
             if skipped:
                 typer.secho(
                     f"  ⚠  Skipped {len(skipped)} package(s) due to installation failure: "
@@ -1092,7 +1094,7 @@ def create_odoo_venv(  # noqa: C901
         else:
             _run_command(
                 ["uv", "pip", "install", "-r", tmp_path],
-                venv_dir=venv_dir,
+                venv_dir=venv_dir_path,
                 verbose=False,
                 extra_env={"UV_PRERELEASE": "allow"},
             )
@@ -1106,7 +1108,7 @@ def create_odoo_venv(  # noqa: C901
         typer.secho("\nInstalling legacy build tools for Odoo <= 13.0...")
         _run_command(
             ["uv", "pip", "install", "setuptools<58.0", "wheel"],
-            venv_dir=venv_dir,
+            venv_dir=venv_dir_path,
             verbose=verbose,
         )
         typer.secho("  ✔  setuptools<58.0 wheel installed")
@@ -1123,12 +1125,12 @@ def create_odoo_venv(  # noqa: C901
                 typer.secho(f"  Installing hidden build dependencies for {pkg_name}: {', '.join(build_deps)}...")
                 _run_command(
                     ["uv", "pip", "install", *build_deps],
-                    venv_dir=venv_dir,
+                    venv_dir=venv_dir_path,
                     verbose=verbose,
                 )
             _run_command(
                 ["uv", "pip", "install", "--no-build-isolation", spec],
-                venv_dir=venv_dir,
+                venv_dir=venv_dir_path,
                 verbose=verbose,
             )
             typer.secho(f"  ✔  {typer.style(spec, fg=typer.colors.YELLOW)} installed (no build isolation)")
@@ -1139,7 +1141,7 @@ def create_odoo_venv(  # noqa: C901
         extra_commands,
         odoo_version,
         python_version,
-        venv_dir,
+        venv_dir_path,
         verbose,
     )
 
@@ -1148,7 +1150,7 @@ def create_odoo_venv(  # noqa: C901
         typer.secho("\nInstalling Odoo in editable mode...")
         _run_command(
             ["uv", "pip", "install", "-e", f"file://{odoo_dir}#egg=odoo"],
-            venv_dir=venv_dir,
+            venv_dir=venv_dir_path,
             verbose=verbose,
         )
         typer.secho(
@@ -1161,23 +1163,23 @@ def create_odoo_venv(  # noqa: C901
             extra_commands,
             odoo_version,
             python_version,
-            venv_dir,
+            venv_dir_path,
             verbose,
         )
 
     typer.secho("\n✅ Environment setup complete!", fg=typer.colors.GREEN)
     typer.secho(
-        f"Activate it with: source {typer.style(str(venv_dir / 'bin' / 'activate'), fg=typer.colors.YELLOW)}",
+        f"Activate it with: source {typer.style(display_venv_dir + '/bin/activate', fg=typer.colors.YELLOW)}",
     )
 
     # Identify transitive dependencies: packages installed but not explicitly requested.
     # Build a reverse dep map to record which explicit package pulled each transitive dep in.
     try:
-        frozen = _freeze_venv(venv_dir)
+        frozen = _freeze_venv(venv_dir_path)
         transitive_pkgs = {p for p in frozen if p not in origins and p not in ignored_tracking}
         if transitive_pkgs:
             # Scan ALL installed packages so multi-level transitive deps are resolved
-            reverse_deps = _build_reverse_dep_map(venv_dir, set(frozen.keys()))
+            reverse_deps = _build_reverse_dep_map(venv_dir_path, set(frozen.keys()))
             for pkg_name in transitive_pkgs:
                 parents = reverse_deps.get(pkg_name, [])
                 if parents:
