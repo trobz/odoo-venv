@@ -550,7 +550,7 @@ def create(
     result = create_odoo_venv(
         odoo_version=odoo_version,
         odoo_dir=str(odoo_dir_path),
-        venv_dir=str(venv_dir_path),
+        venv_dir=venv_dir,
         python_version=python_version,
         install_odoo=install_odoo,
         install_odoo_requirements=install_odoo_requirements,
@@ -1025,7 +1025,7 @@ def update(
     ] = True,
     yes: Annotated[
         bool,
-        typer.Option(help="Skip confirmation prompt.", is_flag=True),
+        typer.Option(help="Skip confirmation prompt."),
     ] = False,
 ):
     """Update an existing venv by rebuilding from its .odoo-venv.toml configuration."""
