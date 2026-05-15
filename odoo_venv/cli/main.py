@@ -517,6 +517,11 @@ def create(
 
     odoo_dir_path, odoo_version = _resolve_odoo_dir_and_version(odoo_dir, detected_odoo_dir, detected_version)
 
+    if not python_version and project_dir_value:
+        pv_file = Path(project_dir_value) / ".python-version"
+        if pv_file.is_file():
+            python_version = pv_file.read_text().strip() or None
+
     if not python_version:
         python_version = ODOO_PYTHON_VERSIONS.get(odoo_version)
 
