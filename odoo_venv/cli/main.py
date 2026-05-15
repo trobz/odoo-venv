@@ -775,7 +775,7 @@ def _parse_version_info(raw: str) -> str | None:
 
 
 def _read_python_version_local(venv_dir: Path) -> str | None:
-    """Read the Python version from a local venv's pyvenv.cfg."""
+    """Read the Python version from a local venv's pyvenv.cfg, falling back to python -V."""
     cfg = venv_dir / "pyvenv.cfg"
     try:
         for line in cfg.read_text().splitlines():
@@ -784,11 +784,21 @@ def _read_python_version_local(venv_dir: Path) -> str | None:
                 return _parse_version_info(raw)
     except OSError:
         pass
-    return None
+    try:
+        result = subprocess.run(  # noqa: S603
+            [str(venv_dir / "bin" / "python"), "-V"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        # "Python 3.11.13" → "3.11.13"
+        return result.stdout.strip().split(" ", 1)[-1] or None
+    except (OSError, subprocess.CalledProcessError):
+        return None
 
 
 def _read_python_version_remote(host: str, path: str) -> str | None:
-    """Read the Python version from a remote venv's pyvenv.cfg over SSH."""
+    """Read the Python version from a remote venv's pyvenv.cfg over SSH, falling back to python -V."""
     result = subprocess.run(  # noqa: S603
         ["ssh", host, f"grep '^version_info' {path}/pyvenv.cfg 2>/dev/null"],  # noqa: S607
         capture_output=True,
@@ -797,6 +807,13 @@ def _read_python_version_remote(host: str, path: str) -> str | None:
     if result.returncode == 0 and result.stdout.strip():
         raw = result.stdout.strip().split("=", 1)[1].strip()
         return _parse_version_info(raw)
+    result = subprocess.run(  # noqa: S603
+        ["ssh", host, f"{path}/bin/python -V 2>/dev/null"],  # noqa: S607
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip().split(" ", 1)[-1] or None
     return None
 
 
