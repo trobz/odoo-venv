@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from odoo_addons_path import get_odoo_version_from_addons
+from odoo_addons_path import get_odoo_version_from_manifest
 
 from odoo_venv.cli.main import _discover_venvs, _freeze_venv
 from odoo_venv.exceptions import OdooVenvError
@@ -27,9 +27,10 @@ def get_addon_series(addon_path: Path) -> str:
     """Return the Odoo major series (e.g. '19.0') for the given addon directory."""
     if not addon_path.is_dir():
         raise OdooVenvError(f"Addon path is not a directory: {addon_path}")  # noqa: TRY003
-    if not (addon_path / "__manifest__.py").is_file():
+    manifest_file = addon_path / "__manifest__.py"
+    if not manifest_file.is_file():
         raise OdooVenvError(f"Missing __manifest__.py in {addon_path}")  # noqa: TRY003
-    series = get_odoo_version_from_addons(str(addon_path.parent))
+    series = get_odoo_version_from_manifest(manifest_file)
     if not series:
         raise OdooVenvError(  # noqa: TRY003
             f"Could not determine Odoo series from {addon_path}/__manifest__.py "
