@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v1.21.0 (2026-05-20)
+
+### Features
+
+- Use .python-version from --project-dir as default Python version
+  ([`f97dfb1`](https://github.com/trobz/odoo-venv/commit/f97dfb1da1544ec523e9c60db00deaa978dcc7f1))
+
+- **compare**: Fall back to python -V if pyvenv.cfg has no version_info
+  ([`49dc698`](https://github.com/trobz/odoo-venv/commit/49dc698a1dcc0faec2c198c2d5fb89d5dddb42bc))
+
+- **compare**: Show Python version as first row in compare table
+  ([`fe74baa`](https://github.com/trobz/odoo-venv/commit/fe74baa335bc96d59150a5cd6e174a75e7e5dc2f))
+
+
 ## v1.20.2 (2026-05-07)
 
 ### Bug Fixes
