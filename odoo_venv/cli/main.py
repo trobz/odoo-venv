@@ -517,6 +517,11 @@ def create(
 
     odoo_dir_path, odoo_version = _resolve_odoo_dir_and_version(odoo_dir, detected_odoo_dir, detected_version)
 
+    if not python_version and project_dir_value:
+        pv_file = Path(project_dir_value) / ".python-version"
+        if pv_file.is_file():
+            python_version = pv_file.read_text().strip() or None
+
     if not python_version:
         python_version = ODOO_PYTHON_VERSIONS.get(odoo_version)
 
@@ -758,6 +763,73 @@ def _parse_venv_arg(arg: str) -> tuple[str | None, str]:
     return None, arg
 
 
+def _parse_version_info(raw: str) -> str | None:
+    """Extract a clean X.Y.Z version from a raw version_info string.
+
+    Some venv creators write the full sys.version_info tuple, e.g. '3.11.13.final.0'.
+    We keep only the leading numeric components (up to three).
+    """
+    parts = raw.strip().split(".")
+    numeric = [p for p in parts if p.isdigit()][:3]
+    return ".".join(numeric) if numeric else None
+
+
+def _read_python_version_local(venv_dir: Path) -> str | None:
+    """Read the Python version from a local venv's pyvenv.cfg, falling back to python -V."""
+    cfg = venv_dir / "pyvenv.cfg"
+    try:
+        for line in cfg.read_text().splitlines():
+            if line.startswith("version_info"):
+                raw = line.split("=", 1)[1].strip()
+                return _parse_version_info(raw)
+    except OSError:
+        pass
+    try:
+        result = subprocess.run(  # noqa: S603
+            [str(venv_dir / "bin" / "python"), "-V"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        # "Python 3.11.13" → "3.11.13"
+        return result.stdout.strip().split(" ", 1)[-1] or None
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def _read_python_version_remote(host: str, path: str) -> str | None:
+    """Read the Python version from a remote venv's pyvenv.cfg over SSH, falling back to python -V."""
+    result = subprocess.run(  # noqa: S603
+        ["ssh", host, f"grep '^version_info' {path}/pyvenv.cfg 2>/dev/null"],  # noqa: S607
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        raw = result.stdout.strip().split("=", 1)[1].strip()
+        return _parse_version_info(raw)
+    result = subprocess.run(  # noqa: S603
+        ["ssh", host, f"{path}/bin/python -V 2>/dev/null"],  # noqa: S607
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip().split(" ", 1)[-1] or None
+    return None
+
+
+def _collect_python_versions(parsed: list[tuple[str | None, str, str]], labels: list[str]) -> dict[str, str | None]:
+    """Return {label: python_version_or_None} for each venv entry (None for file entries)."""
+    versions: dict[str, str | None] = {}
+    for (host, path, kind), label in zip(parsed, labels, strict=True):
+        if kind != "venv":
+            versions[label] = None
+        elif host is None:
+            versions[label] = _read_python_version_local(Path(path))
+        else:
+            versions[label] = _read_python_version_remote(host, path)
+    return versions
+
+
 def _fetch_latest_pypi(package: str) -> str:
     """Return the latest version of *package* from PyPI, or ``"?"`` on failure."""
     url = f"https://pypi.org/pypi/{package}/json"
@@ -768,12 +840,27 @@ def _fetch_latest_pypi(package: str) -> str:
         return "?"
 
 
+def _format_version_cells(versions: list[str | None]) -> list[str]:
+    """Format a list of version strings into Rich markup cells, highlighting mismatches."""
+    has_diff = len({v for v in versions if v is not None}) > 1
+    cells: list[str] = []
+    for ver in versions:
+        if ver is None:
+            cells.append("[dim]-[/dim]")
+        elif has_diff:
+            cells.append(f"[yellow]{ver}[/yellow]")
+        else:
+            cells.append(ver)
+    return cells
+
+
 def _build_compare_table(
     labels: list[str],
     all_packages: dict[str, dict[str, str]],
     all_names: list[str],
     latest: dict[str, str],
     show_latest: bool,
+    python_versions: dict[str, str | None] | None = None,
 ):
     from rich import box
     from rich.table import Table
@@ -785,19 +872,17 @@ def _build_compare_table(
     if show_latest:
         table.add_column("Latest", justify="center")
 
+    if python_versions is not None:
+        py_values = [python_versions.get(label) for label in labels]
+        py_cells = _format_version_cells(py_values)
+        py_row: list[str] = ["[bold]python[/bold]", *py_cells]
+        if show_latest:
+            py_row.append("")
+        table.add_row(*py_row, end_section=True)
+
     for name in all_names:
         versions = [all_packages[label].get(name) for label in labels]
-        has_diff = len({v for v in versions if v is not None}) > 1
-
-        cells: list[str] = []
-        for ver in versions:
-            if ver is None:
-                cells.append("[dim]-[/dim]")
-            elif has_diff:
-                cells.append(f"[yellow]{ver}[/yellow]")
-            else:
-                cells.append(ver)
-
+        cells = _format_version_cells(versions)
         row: list[str] = [name, *cells]
 
         if show_latest:
@@ -908,6 +993,7 @@ def compare(
 
     parsed, labels = _resolve_venv_args(venv_dirs)
     all_packages = _collect_packages(parsed, labels)
+    python_versions = _collect_python_versions(parsed, labels)
 
     all_names = sorted({name for pkgs in all_packages.values() for name in pkgs})
 
@@ -920,7 +1006,9 @@ def compare(
             for fut in concurrent.futures.as_completed(futures):
                 latest[futures[fut]] = fut.result()
 
-    table = _build_compare_table(labels, all_packages, all_names, latest, show_latest=not no_latest)
+    table = _build_compare_table(
+        labels, all_packages, all_names, latest, show_latest=not no_latest, python_versions=python_versions
+    )
     Console().print(table)
 
 
