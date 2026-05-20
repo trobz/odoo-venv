@@ -28,6 +28,7 @@ dev = [
 
 [project.scripts]
 odoo-venv = "odoo_venv.cli.main:app"
+ovx = "odoo_venv.cli.ovx_cmd:app"
 
 
 [build-system]
