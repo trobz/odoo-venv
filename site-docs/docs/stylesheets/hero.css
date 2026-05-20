@@ -93,6 +93,33 @@ body:has(.ov-landing) .md-content__inner {
   animation: ease-out 0.8s both;
 }
 
+.ov-github-badge {
+  position: fixed;
+  top: 1.5rem;
+  right: 1.5rem;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 1.2rem;
+  background: var(--ov-surface);
+  border: 1px solid var(--ov-border);
+  border-radius: 999px;
+  color: var(--ov-text) !important;
+  font-family: var(--ov-font-mono);
+  font-size: 0.85rem;
+  text-decoration: none;
+  backdrop-filter: blur(12px);
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.ov-github-badge:hover {
+  background: var(--ov-border);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+}
+
 /* ---------- Terminal badge ---------- */
 .ov-hero__badge {
   display: inline-flex;

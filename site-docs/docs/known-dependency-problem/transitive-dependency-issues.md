@@ -61,7 +61,7 @@ When `magento` is detected in any requirement source, odoo-venv:
 For transitive dependencies that aren't yet in the NBI registry, `--skip-on-failure` provides a fallback:
 
 ```bash
-odoo-venv create 12.0 --odoo-dir ~/code/odoo/12.0 --skip-on-failure
+odoo-venv create --odoo-dir ~/code/odoo/12.0 --skip-on-failure
 ```
 
 When a package fails to install, odoo-venv:

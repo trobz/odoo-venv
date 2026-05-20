@@ -40,7 +40,7 @@ def _run_dry(tmp_path: Path, odoo_dir: Path, **kwargs) -> str:
         create_odoo_venv(
             odoo_version=kwargs.pop("odoo_version", "17.0"),
             odoo_dir=odoo_dir,
-            venv_dir=tmp_path / ".venv",
+            venv_dir=str(tmp_path / ".venv"),
             python_version=kwargs.pop("python_version", "3.10"),
             install_odoo=False,
             install_odoo_requirements=True,
