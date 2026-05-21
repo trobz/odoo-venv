@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v1.21.2 (2026-05-21)
+
+### Bug Fixes
+
+- **odoo-venv**: Display venv_dir with ~ instead of $HOME in output messages
+  ([`3abd30a`](https://github.com/trobz/odoo-venv/commit/3abd30a5ea19ad4f08d4205c503a7a3bab455e12))
+
+- **site-docs**: Create command does not take odoo version anymore
+  ([`89ffcd2`](https://github.com/trobz/odoo-venv/commit/89ffcd246165e030a916bede1f979b28baad1a6f))
+
+
 ## v1.21.1 (2026-05-21)
 
 ### Bug Fixes
