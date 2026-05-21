@@ -45,11 +45,10 @@ class TestUpdateCommand:
     @patch("odoo_venv.cli.main.create_odoo_venv")
     def test_update_basic(self, mock_create, mock_freeze, tmp_path):
         venv_dir = _create_fake_venv(tmp_path)
-        tmp_venv = venv_dir.parent / f"{venv_dir.name}.tmp"
 
         def _side_effect(**kwargs):
-            tmp_venv.mkdir(exist_ok=True)
-            (tmp_venv / "pyvenv.cfg").write_text("uv = 0.7.0\n")
+            venv_dir.mkdir(exist_ok=True)
+            (venv_dir / "pyvenv.cfg").write_text("uv = 0.7.0\n")
             return VenvResult()
 
         mock_create.side_effect = _side_effect
@@ -73,11 +72,10 @@ class TestUpdateCommand:
     @patch("odoo_venv.cli.main.create_odoo_venv")
     def test_update_backup_created(self, mock_create, mock_freeze, tmp_path):
         venv_dir = _create_fake_venv(tmp_path)
-        tmp_venv = venv_dir.parent / f"{venv_dir.name}.tmp"
 
         def _side_effect(**kwargs):
-            tmp_venv.mkdir(exist_ok=True)
-            (tmp_venv / "pyvenv.cfg").write_text("uv = 0.7.0\n")
+            venv_dir.mkdir(exist_ok=True)
+            (venv_dir / "pyvenv.cfg").write_text("uv = 0.7.0\n")
             return VenvResult()
 
         mock_create.side_effect = _side_effect
@@ -90,11 +88,10 @@ class TestUpdateCommand:
     @patch("odoo_venv.cli.main.create_odoo_venv")
     def test_update_no_backup(self, mock_create, mock_freeze, tmp_path):
         venv_dir = _create_fake_venv(tmp_path)
-        tmp_venv = venv_dir.parent / f"{venv_dir.name}.tmp"
 
         def _side_effect(**kwargs):
-            tmp_venv.mkdir(exist_ok=True)
-            (tmp_venv / "pyvenv.cfg").write_text("uv = 0.7.0\n")
+            venv_dir.mkdir(exist_ok=True)
+            (venv_dir / "pyvenv.cfg").write_text("uv = 0.7.0\n")
             return VenvResult()
 
         mock_create.side_effect = _side_effect
@@ -107,11 +104,10 @@ class TestUpdateCommand:
     @patch("odoo_venv.cli.main.create_odoo_venv")
     def test_update_user_declines(self, mock_create, mock_freeze, tmp_path):
         venv_dir = _create_fake_venv(tmp_path)
-        tmp_venv = venv_dir.parent / f"{venv_dir.name}.tmp"
 
         def _side_effect(**kwargs):
-            tmp_venv.mkdir(exist_ok=True)
-            (tmp_venv / "pyvenv.cfg").write_text("uv = 0.7.0\n")
+            venv_dir.mkdir(exist_ok=True)
+            (venv_dir / "pyvenv.cfg").write_text("uv = 0.7.0\n")
             return VenvResult()
 
         mock_create.side_effect = _side_effect
