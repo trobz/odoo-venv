@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.21.1 (2026-05-21)
+
+### Bug Fixes
+
+- **assets**: Update setuptools<82.0.0 to cover odoo's gevent==22.10.2
+  ([`1b986a9`](https://github.com/trobz/odoo-venv/commit/1b986a9e63199303ef4c8356872445f8cd4ae743))
+
+
 ## v1.21.0 (2026-05-20)
 
 ### Features
