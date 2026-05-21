@@ -109,10 +109,11 @@ command = ["uv", "pip", "install", "setuptools<82.0"]
 when = "odoo_version > '13.0' and odoo_version <= '17.0'"
 stage = "after_requirements"
 
-# setuptools>=82.0 breaks gevent==22.10.2 which we pin for Python 3.10
+# setuptools>=82.0 breaks gevent==22.10.2 which we pin for Python 3.10 and that odoo pins for Python 3.11
+# It breaks on runtime, as setuptools 82.0.0 removed pkg_resources that gevent 22.10.2 needs
 [[common.extra_commands]]
 command = ["uv", "pip", "install", "setuptools<82.0"]
-when = "odoo_version > '17.0' and python_version == '3.10'"
+when = "odoo_version > '17.0' and python_version >= '3.10' and python_version < '3.12'"
 stage = "after_requirements"
 
 # Install cbor2==5.4.3 for Odoo >= 18.0
