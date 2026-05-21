@@ -31,7 +31,7 @@ Enter
 Show
 
 Sleep 500ms
-Type "odoo-venv create 19.0 \"
+Type "odoo-venv create \"
 Sleep 400ms
 Enter
 Type "  --odoo-dir ~/code/odoo/odoo/19.0/ \"
