@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v1.22.0 (2026-05-22)
+
+### Features
+
+- Add list-external-dependencies command
+  ([`84379ad`](https://github.com/trobz/odoo-venv/commit/84379ad35cdd09c56c71ebe9a6def01157e18151))
+
+- **list-external-dependencies**: Add --output option with table and raw formats
+  ([`7ea51be`](https://github.com/trobz/odoo-venv/commit/7ea51bec45b5855e0621d3b4c7b45bd97dd0d191))
+
+
 ## v1.21.3 (2026-05-22)
 
 ### Bug Fixes
