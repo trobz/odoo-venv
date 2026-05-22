@@ -1042,8 +1042,8 @@ def create_odoo_launcher(
     create_launcher(odoo_version, venv_dir_path, odoo_dir=odoo_dir_path, force=force)
 
 
-def _build_update_venv(merged: dict, odoo_version: str, tmp_venv_path: Path):
-    """Create a temporary venv from merged config. Returns VenvResult."""
+def _build_update_venv(merged: dict, odoo_version: str, venv_path: Path):
+    """Create a venv from merged config. Returns VenvResult."""
     # Resolve preset's extra_commands if a preset is set
     extra_commands = None
     merged_preset = merged.get("preset")
@@ -1070,7 +1070,7 @@ def _build_update_venv(merged: dict, odoo_version: str, tmp_venv_path: Path):
     return create_odoo_venv(
         odoo_version=odoo_version,
         odoo_dir=merged.get("odoo_dir", ""),
-        venv_dir=str(tmp_venv_path),
+        venv_dir=str(venv_path),
         python_version=merged.get("python_version") or None,
         install_odoo=merged.get("install_odoo", True),
         install_odoo_requirements=merged.get("install_odoo_requirements", True),
@@ -1089,19 +1089,13 @@ def _build_update_venv(merged: dict, odoo_version: str, tmp_venv_path: Path):
     )
 
 
-def _swap_venvs(venv_path: Path, tmp_venv_path: Path, *, backup: bool) -> None:
-    """Atomically replace *venv_path* with *tmp_venv_path*."""
+def _backup_venv(venv_path: Path, bak_path: Path) -> None:
+    """Back up *venv_path* before replacing it."""
 
-    if backup:
-        bak_path = venv_path.parent / f"{venv_path.name}.bak"
-        if bak_path.exists():
-            shutil.rmtree(bak_path)
-        venv_path.rename(bak_path)
-        typer.secho(f"Backed up to {bak_path}", fg=typer.colors.CYAN)
-    else:
-        shutil.rmtree(venv_path)
-
-    tmp_venv_path.rename(venv_path)
+    if bak_path.exists():
+        shutil.rmtree(bak_path)
+    venv_path.rename(bak_path)
+    typer.secho(f"Backed up to {bak_path}", fg=typer.colors.CYAN)
 
 
 @app.command()
@@ -1134,20 +1128,18 @@ def update(
     toml_args, meta, _reqs, _ignored = read_venv_config(venv_path)
     odoo_version_val = meta.get("odoo_version", "")
 
-    # Create tmp venv
-    tmp_venv_path = venv_path.parent / f"{venv_path.name}.tmp"
-    if tmp_venv_path.exists():
-        shutil.rmtree(tmp_venv_path)
+    # Rename existing venv to .bak upfront to vacate venv_path for the new build
+    bak_path = venv_path.parent / f"{venv_path.name}.bak"
+    _backup_venv(venv_path, bak_path)
 
-    typer.secho(f"Creating temporary venv at {tmp_venv_path}...", fg=typer.colors.CYAN)
-
-    swapped = False
+    committed = False
     try:
-        result = _build_update_venv(toml_args, odoo_version_val, tmp_venv_path)
+        typer.secho(f"Creating new venv at {venv_path}...", fg=typer.colors.CYAN)
+        result = _build_update_venv(toml_args, odoo_version_val, venv_path)
 
         # Write fresh config with updated origin tracking data
         write_venv_config(
-            tmp_venv_path,
+            venv_path,
             toml_args,
             odoo_version_val,
             requirements=result.requirements or None,
@@ -1155,8 +1147,8 @@ def update(
         )
 
         typer.secho("\nComparing packages...", fg=typer.colors.CYAN)
-        old_pkgs = _freeze_venv(venv_path)
-        new_pkgs = _freeze_venv(tmp_venv_path)
+        old_pkgs = _freeze_venv(bak_path)
+        new_pkgs = _freeze_venv(venv_path)
 
         all_names = sorted({*old_pkgs, *new_pkgs})
         all_packages = {"current": old_pkgs, "updated": new_pkgs}
@@ -1179,13 +1171,17 @@ def update(
             typer.secho("Update cancelled.", fg=typer.colors.YELLOW)
             raise typer.Exit(0)
 
-        _swap_venvs(venv_path, tmp_venv_path, backup=backup)
-        swapped = True
+        committed = True
+        if not backup:
+            shutil.rmtree(bak_path)
         typer.secho("Update complete.", fg=typer.colors.GREEN)
     finally:
-        # Clean up tmp venv
-        if not swapped and tmp_venv_path.exists():
-            shutil.rmtree(tmp_venv_path)
+        # Restore old venv if the update was not committed
+        if not committed:
+            if venv_path.exists():
+                shutil.rmtree(venv_path)
+            if bak_path.exists():
+                bak_path.rename(venv_path)
 
 
 def _origin_label(origin: str) -> str:
