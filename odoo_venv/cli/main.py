@@ -1454,6 +1454,19 @@ def _collect_external_deps_from_manifests(found: dict[str, Path], kind: str) -> 
     return result
 
 
+def _output_raw(deps: dict[str, list[str]]) -> None:
+    by_module: dict[str, list[str]] = {}
+    for pkg, mod_list in deps.items():
+        for mod in mod_list:
+            by_module.setdefault(mod, []).append(pkg)
+    for i, mod in enumerate(sorted(by_module)):
+        typer.echo(f"# {mod}")
+        for pkg in sorted(by_module[mod]):
+            typer.echo(pkg)
+        if i < len(by_module) - 1:
+            typer.echo("")
+
+
 @app.command("list-external-dependencies")
 def list_external_dependencies(
     kind: Annotated[
@@ -1476,10 +1489,22 @@ def list_external_dependencies(
         str | None,
         typer.Option("--project-dir", help="Project directory to auto-detect addons paths from."),
     ] = None,
+    output: Annotated[
+        str,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Output format: `table` (default) or `raw` (grouped by module).",
+        ),
+    ] = "table",
 ):
     """List external dependencies for a set of Odoo modules based on their manifests."""
     from rich import box
     from rich.table import Table
+
+    if output not in ("table", "raw"):
+        typer.secho("error: --output must be 'table' or 'raw'.", fg=typer.colors.RED)
+        raise typer.Exit(1)
 
     if not addons_path and not project_dir:
         typer.secho("error: provide either --addons-path or --project-dir.", fg=typer.colors.RED)
@@ -1506,6 +1531,10 @@ def list_external_dependencies(
 
     if not deps:
         typer.secho(f"No '{kind}' external dependencies found.", fg=typer.colors.YELLOW)
+        return
+
+    if output == "raw":
+        _output_raw(deps)
         return
 
     table = Table(box=box.ROUNDED, show_header=True, header_style="bold cyan")
