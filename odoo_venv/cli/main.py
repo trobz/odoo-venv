@@ -1,3 +1,4 @@
+import ast
 import concurrent.futures
 import json
 import os
@@ -22,7 +23,7 @@ from rich.table import Table
 
 from odoo_venv.exceptions import PresetNotFoundError
 from odoo_venv.launcher import create_launcher
-from odoo_venv.main import create_odoo_venv
+from odoo_venv.main import _resolve_manifest_dep, create_odoo_venv
 from odoo_venv.utils import (
     VENV_CONFIG_FILENAME,
     load_presets,
@@ -1419,6 +1420,131 @@ def show(
     if ignored:
         console.print()
         _print_ignored_panel(console, ignored)
+
+
+def _find_module_manifests(module_names: list[str] | None, addons_path_list: list[str]) -> dict[str, Path]:
+    """Return {module_name: manifest_path} for modules found in addons paths.
+
+    When *module_names* is None, all modules with a manifest are included.
+    """
+    found: dict[str, Path] = {}
+    for addons_dir in addons_path_list:
+        addons_dir_path = Path(addons_dir)
+        if not addons_dir_path.is_dir():
+            continue
+        for module_dir in addons_dir_path.iterdir():
+            if not module_dir.is_dir() or module_dir.name in found:
+                continue
+            if module_names is not None and module_dir.name not in module_names:
+                continue
+            manifest_path = module_dir / "__manifest__.py"
+            if manifest_path.is_file():
+                found[module_dir.name] = manifest_path
+    return found
+
+
+def _collect_external_deps_from_manifests(found: dict[str, Path], kind: str) -> dict[str, list[str]]:
+    """Return {dep: [module_name, ...]} for the given dependency kind from a set of manifest files."""
+    result: dict[str, list[str]] = {}
+    for module_name, manifest_path in found.items():
+        manifest = ast.literal_eval(manifest_path.read_text(encoding="utf-8"))
+        deps = manifest.get("external_dependencies", {}).get(kind, [])
+        if isinstance(deps, list):
+            for dep in deps:
+                entry = _resolve_manifest_dep(dep) if kind == "python" else dep
+                result.setdefault(entry, []).append(module_name)
+    return result
+
+
+def _output_raw(deps: dict[str, list[str]]) -> None:
+    by_module: dict[str, list[str]] = {}
+    for pkg, mod_list in deps.items():
+        for mod in mod_list:
+            by_module.setdefault(mod, []).append(pkg)
+    for i, mod in enumerate(sorted(by_module)):
+        typer.echo(f"# {mod}")
+        for pkg in sorted(by_module[mod]):
+            typer.echo(pkg)
+        if i < len(by_module) - 1:
+            typer.echo("")
+
+
+@app.command("list-external-dependencies")
+def list_external_dependencies(
+    kind: Annotated[
+        str,
+        typer.Option("--kind", "-k", help="Kind of external dependency, such as `python` or `deb`."),
+    ] = "python",
+    modules: Annotated[
+        str | None,
+        typer.Option(
+            "--modules",
+            "-m",
+            help="Comma-separated list of module names. Defaults to all modules found in the addons path.",
+        ),
+    ] = None,
+    addons_path: Annotated[
+        str | None,
+        typer.Option(help="Comma-separated list of addons paths."),
+    ] = None,
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", help="Project directory to auto-detect addons paths from."),
+    ] = None,
+    output: Annotated[
+        str,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Output format: `table` (default) or `raw` (grouped by module).",
+        ),
+    ] = "table",
+):
+    """List external dependencies for a set of Odoo modules based on their manifests."""
+    from rich import box
+    from rich.table import Table
+
+    if output not in ("table", "raw"):
+        typer.secho("error: --output must be 'table' or 'raw'.", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    if not addons_path and not project_dir:
+        typer.secho("error: provide either --addons-path or --project-dir.", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    if project_dir and not addons_path:
+        addons_path = _detect_project_layout(project_dir)[2]
+
+    if not addons_path:
+        typer.secho("error: could not determine addons path.", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    addons_path_list = [str(Path(p.strip()).expanduser().resolve()) for p in addons_path.split(",")]
+    module_names = [m.strip() for m in modules.split(",") if m.strip()] if modules else None
+
+    found = _find_module_manifests(module_names, addons_path_list)
+
+    if module_names:
+        missing = [m for m in module_names if m not in found]
+        if missing:
+            typer.secho(f"warning: modules not found: {', '.join(missing)}", fg=typer.colors.YELLOW)
+
+    deps = _collect_external_deps_from_manifests(found, kind)
+
+    if not deps:
+        typer.secho(f"No '{kind}' external dependencies found.", fg=typer.colors.YELLOW)
+        return
+
+    if output == "raw":
+        _output_raw(deps)
+        return
+
+    table = Table(box=box.ROUNDED, show_header=True, header_style="bold cyan")
+    table.add_column("Package")
+    table.add_column("Required by")
+    for pkg in sorted(deps):
+        table.add_row(pkg, ", ".join(sorted(deps[pkg])))
+    Console().print(table)
 
 
 @app.command("list")
