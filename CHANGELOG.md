@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.21.3 (2026-05-22)
+
+### Bug Fixes
+
+- **metadata**: Record tool version in venv metadata
+  ([`b9c6289`](https://github.com/trobz/odoo-venv/commit/b9c62893d3a1a7dd7e07977d87e18aadf33eeede))
+
+### Refactoring
+
+- **update**: Rename venv_path to .bak upfront instead of tmp+swap
+  ([`17235af`](https://github.com/trobz/odoo-venv/commit/17235af769c71ee48cf92cd50673d8121e307a9c))
+
+
 ## v1.21.2 (2026-05-21)
 
 ### Bug Fixes
