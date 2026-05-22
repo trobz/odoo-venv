@@ -607,6 +607,7 @@ def create(
         venv_dir_path,
         config_args,
         odoo_version,
+        tool_version=version("odoo-venv"),
         requirements=result.requirements or None,
         ignored=result.ignored or None,
     )
@@ -1142,6 +1143,7 @@ def update(
             venv_path,
             toml_args,
             odoo_version_val,
+            tool_version=version("odoo-venv"),
             requirements=result.requirements or None,
             ignored=result.ignored or None,
         )
