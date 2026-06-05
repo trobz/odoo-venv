@@ -219,3 +219,7 @@ __marimo__/
 .opencode/
 plans/
 release-manifest.json
+
+# VIM files
+.*.sw?
+.*.un~

@@ -1441,29 +1441,40 @@ def _find_module_manifests(module_names: list[str] | None, addons_path_list: lis
     return found
 
 
-def _collect_external_deps_from_manifests(found: dict[str, Path], kind: str) -> dict[str, list[str]]:
-    """Return {dep: [module_name, ...]} for the given dependency kind from a set of manifest files."""
+def _collect_external_deps_from_manifests(
+    found: dict[str, Path], kind: str, show_paths: bool = False, project_dir: str | None = None
+) -> dict[str, list[str]]:
+    """Return {dep: [module_name_or_path, ...]} for the given dependency kind from a set of manifest files."""
+    base = Path(project_dir).expanduser().resolve() if project_dir else Path.cwd()
     result: dict[str, list[str]] = {}
     for module_name, manifest_path in found.items():
+        if show_paths:
+            try:
+                label = str(manifest_path.parent.relative_to(base))
+            except ValueError:
+                label = str(manifest_path.parent)
+        else:
+            label = module_name
         manifest = ast.literal_eval(manifest_path.read_text(encoding="utf-8"))
         deps = manifest.get("external_dependencies", {}).get(kind, [])
         if isinstance(deps, list):
             for dep in deps:
                 entry = _resolve_manifest_dep(dep) if kind == "python" else dep
-                result.setdefault(entry, []).append(module_name)
+                result.setdefault(entry, []).append(label)
     return result
 
 
 def _output_raw(deps: dict[str, list[str]]) -> None:
-    by_module: dict[str, list[str]] = {}
+    by_module_set: dict[tuple[str, ...], list[str]] = {}
     for pkg, mod_list in deps.items():
-        for mod in mod_list:
-            by_module.setdefault(mod, []).append(pkg)
-    for i, mod in enumerate(sorted(by_module)):
-        typer.echo(f"# {mod}")
-        for pkg in sorted(by_module[mod]):
+        key = tuple(sorted(mod_list))
+        by_module_set.setdefault(key, []).append(pkg)
+    entries = sorted(by_module_set)
+    for i, mod_tuple in enumerate(entries):
+        typer.echo(f"# {', '.join(mod_tuple)}")
+        for pkg in sorted(by_module_set[mod_tuple]):
             typer.echo(pkg)
-        if i < len(by_module) - 1:
+        if i < len(entries) - 1:
             typer.echo("")
 
 
@@ -1497,6 +1508,14 @@ def list_external_dependencies(
             help="Output format: `table` (default) or `raw` (grouped by module).",
         ),
     ] = "table",
+    show_paths: Annotated[
+        bool,
+        typer.Option(
+            "--show-paths",
+            help="Show relative paths to module directories instead of module names."
+            " based on project-dir if provided else current working directory.",
+        ),
+    ] = False,
 ):
     """List external dependencies for a set of Odoo modules based on their manifests."""
     from rich import box
@@ -1527,7 +1546,7 @@ def list_external_dependencies(
         if missing:
             typer.secho(f"warning: modules not found: {', '.join(missing)}", fg=typer.colors.YELLOW)
 
-    deps = _collect_external_deps_from_manifests(found, kind)
+    deps = _collect_external_deps_from_manifests(found, kind, show_paths=show_paths, project_dir=project_dir)
 
     if not deps:
         typer.secho(f"No '{kind}' external dependencies found.", fg=typer.colors.YELLOW)
