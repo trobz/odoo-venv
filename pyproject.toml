@@ -10,11 +10,11 @@ requires-python = ">=3.10"
 license = "AGPL-3.0"
 license-files = ["LICENSE"]
 dependencies = [
-    "typer",
-    "typing_extensions",
-    "tomli",
-    "packaging>=25.0",
-    "odoo-addons-path>=1.2.0",
+    "typer==0.26.5",
+    "typing_extensions==4.15.0",
+    "tomli==2.4.1",
+    "packaging==26.2",
+    "odoo-addons-path==1.4.0",
 ]
 
 [dependency-groups]
