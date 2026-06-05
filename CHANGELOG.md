@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.23.0 (2026-06-05)
+
+### Features
+
+- **list-external-dependencies**: Add --show-paths flag and group by shared deps in raw output
+  ([`1beee93`](https://github.com/trobz/odoo-venv/commit/1beee9338db364baa5f2f2495d6693b2ead7b281))
+
+
 ## v1.22.1 (2026-06-05)
 
 ### Bug Fixes
