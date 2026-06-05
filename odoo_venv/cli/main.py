@@ -81,14 +81,12 @@ def _build_ignore_sources(
     by inspecting ``ctx.get_parameter_source()``.  The CLI flag name is always
     included so the user knows *which* argument caused the ignore.
     """
-    import click
-
     sources: dict[str, str] = {}
     for param_name, value in ignore_args.items():
         if not value:
             continue
         cli_flag = f"--{param_name.replace('_', '-')}"
-        is_from_preset = ctx.get_parameter_source(param_name) == click.core.ParameterSource.DEFAULT_MAP
+        is_from_preset = ctx.get_parameter_source(param_name) == typer._click.core.ParameterSource.DEFAULT_MAP  # type: ignore[attr-defined]
         for normalized in _split_ignore_packages(value):
             if is_from_preset and preset_name:
                 sources[normalized] = f"explicit_ignore:preset:{preset_name}:{cli_flag}"
