@@ -47,6 +47,7 @@ norecursedirs = ["tests/fixtures", ".claude"]
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
 build_command = """
+  pip install uv --quiet --upgrade
   python -m pip install -e '.[build]'
   uv lock --upgrade-package odoo-venv
   git add uv.lock
