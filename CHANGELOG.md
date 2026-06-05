@@ -2,6 +2,23 @@
 
 <!-- version list -->
 
+## v1.22.1 (2026-06-05)
+
+### Bug Fixes
+
+- Replace bare `import click` with `typer._click` to survive typer >= 0.26.0
+  ([`f270d37`](https://github.com/trobz/odoo-venv/commit/f270d37c646239a197802e72f71e04b160bdf4c7))
+
+- Uv.toml with exact exclude-newer to align CI and local dev
+  ([`e795304`](https://github.com/trobz/odoo-venv/commit/e7953043d4712c6446e647b190646a3aadc2eb41))
+
+- **ci**: Install modern uv in release job to support exclude-newer relative format
+  ([`825cd2e`](https://github.com/trobz/odoo-venv/commit/825cd2e3d7034250164fbb28b5cbec0e9e472eba))
+
+- **release**: Upgrade uv in PSR build_command to support exclude-newer relative format
+  ([`1c31a54`](https://github.com/trobz/odoo-venv/commit/1c31a54d9612f2d964b4f0c5b7bfa6e4ab449a90))
+
+
 ## v1.22.0 (2026-05-22)
 
 ### Features
