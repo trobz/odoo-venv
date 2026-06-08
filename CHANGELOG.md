@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.24.0 (2026-06-08)
+
+### Features
+
+- Add ovx command for on-the-fly Odoo module runner
+  ([`13e5d12`](https://github.com/trobz/odoo-venv/commit/13e5d1246d35cb59ff887977a000b926bbbd6911))
+
+
 ## v1.23.0 (2026-06-05)
 
 ### Features
