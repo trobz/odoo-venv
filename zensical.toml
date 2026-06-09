@@ -9,7 +9,7 @@ copyright = "Copyright &copy; 2025 Trobz"
 nav = [
   {Home = "index.md"},
   {"Getting Started" = "getting-started.md"},
-  {Reference = [{"create" = "reference/page-1.md"}, {"compare" = "reference/page-2.md"}, {"create-odoo-launcher" = "reference/page-3.md"}]},
+  {Reference = [{"create" = "reference/page-1.md"}, {"compare" = "reference/page-2.md"}, {"create-odoo-launcher" = "reference/page-3.md"}, {"ovx" = "reference/page-4.md"}]},
   {"Known Dependency Problems" = [{Overview = "known-dependency-problem/index.md"}, {"Import Name vs Package Name" = "known-dependency-problem/import-name-vs-package-name.md"}, {"Version Conflicts" = "known-dependency-problem/version-conflicts.md"}, {"Build Isolation Errors" = "known-dependency-problem/build-isolation-errors.md"}, {"Transitive Dependency Issues" = "known-dependency-problem/transitive-dependency-issues.md"}]},
 ]
 extra_css = [
