@@ -843,6 +843,7 @@ def _fetch_latest_pypi(package: str) -> str:
 def _format_version_cells(versions: list[str | None]) -> list[str]:
     """Format a list of version strings into Rich markup cells, highlighting mismatches."""
     has_diff = len({v for v in versions if v is not None}) > 1
+    has_diff = has_diff or (versions[0] is None and versions[1] is not None)
     cells: list[str] = []
     for ver in versions:
         if ver is None:
@@ -1167,7 +1168,7 @@ def update(
         changed = sum(1 for n in all_names if n in old_pkgs and n in new_pkgs and old_pkgs[n] != new_pkgs[n])
         typer.secho(f"\n{added} added, {removed} removed, {changed} changed", fg=typer.colors.CYAN)
 
-        confirm = yes or typer.confirm("Apply update?", default=False)
+        confirm = yes or typer.confirm("Apply update?", default=True)
         if not confirm:
             typer.secho("Update cancelled.", fg=typer.colors.YELLOW)
             raise typer.Exit(0)
