@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.25.0 (2026-06-22)
+
+### Features
+
+- Default confirmation to Y and highlight added packages when comparing
+  ([`2489200`](https://github.com/trobz/odoo-venv/commit/24892002d4d7cc2bc9f5da98351d7c10aa75139d))
+
+
 ## v1.24.0 (2026-06-08)
 
 ### Features
