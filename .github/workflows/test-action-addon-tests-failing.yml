@@ -3,9 +3,17 @@ name: test-action | addon-tests-failing
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - action.yml
+      - tests/fixtures/**
+      - .github/workflows/test-action-*.yml
   push:
     branches:
       - main
+    paths:
+      - action.yml
+      - tests/fixtures/**
+      - .github/workflows/test-action-*.yml
   workflow_dispatch:
 
 jobs:
