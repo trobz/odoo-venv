@@ -1,9 +1,9 @@
 name: e2e
 
 on:
-  workflow_dispatch: True
+  workflow_dispatch:
   schedule:
-    - cron: "0 4 * * *"
+    - cron: "0 19 * * 0"  # Monday 02:00 UTC+7
 
 concurrency:
   group: ${{ github.ref }}
