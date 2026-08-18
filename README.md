@@ -9,13 +9,12 @@ pip install odoo-venv
 
 ## Quick Start
 
-
 ### 1. Direct CLI Arguments
 
 **Example:**
 
 ```bash
-odoo-venv create 17.0 \
+odoo-venv create \
     --odoo-dir ~/code/odoo/odoo/17.0 \
     --addons-path ~/code/odoo/addons/web,~/code/odoo/addons/mail \
     --python-version 3.10 \
@@ -23,8 +22,8 @@ odoo-venv create 17.0 \
     --extra-requirement "debugpy,ipython"
 ```
 
-This command creates a virtual environment for Odoo 17.0 with the following specifications:
-- Odoo source is located at `~/code/odoo/odoo/17.0`.
+This command creates a virtual environment for Odoo with the following specifications:
+- Odoo source is located at `~/code/odoo/odoo/17.0`. **The Odoo version is auto-detected from `odoo/release.py` inside this directory — there is no separate version argument.**
 - Additional addons are in `~/code/odoo/addons/web` and `~/code/odoo/addons/mail`.
 - The environment uses Python 3.10.
 - It installs dependencies from `requirements.txt` files found in the addons paths.
@@ -37,7 +36,7 @@ The tool includes 4 built-in presets: local, demo, project, ci (see [odoo_venv/a
 **Example:**
 
 ```bash
-odoo-venv create 17.0 \
+odoo-venv create \
     --odoo-dir ~/code/odoo/odoo/17.0 \
     --addons-path ~/code/odoo/addons/web,~/code/odoo/addons/mail \
     --preset demo
@@ -46,7 +45,7 @@ odoo-venv create 17.0 \
 This command will apply all the options from the `demo` preset. You can still override any preset option by providing a direct CLI argument. For example, to use a different `extra_requirement` for a specific run:
 
 ```bash
-odoo-venv create 17.0 \
+odoo-venv create \
     --odoo-dir ~/code/odoo/odoo/17.0 \
     --addons-path ~/code/odoo/addons/web,~/code/odoo/addons/mail \
     --preset demo \
