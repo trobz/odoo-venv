@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.26.0 (2026-08-18)
+
+### Features
+
+- **presets**: Add setproctitle to common preset
+  ([`7ec6932`](https://github.com/trobz/odoo-venv/commit/7ec6932bbee1516f0aebd780dbd3bfdaead33205))
+
+
 ## v1.25.0 (2026-06-22)
 
 ### Features
