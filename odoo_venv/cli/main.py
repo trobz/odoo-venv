@@ -479,7 +479,8 @@ def create(
             callback=project_dir_callback,
             is_eager=True,
             help="Path to project directory. Auto-detects --addons-path, --odoo-dir "
-            "via odoo-addons-path and applies --preset=project.",
+            "via odoo-addons-path and applies --preset=project. Auto-detection is "
+            "skipped when both --odoo-dir and --addons-path are given.",
         ),
     ] = None,
     from_config: Annotated[
@@ -508,10 +509,14 @@ def create(
         _run_with_error_reporting(sys.argv)
         return
 
-    # Auto-detect layout from --project-dir if provided
+    # Auto-detect layout from --project-dir if provided.
+    # Detection only ever fills in --odoo-dir/--addons-path, so skip it when both are
+    # explicit: a project dir holding no codebase (the Odoo source lives elsewhere) makes
+    # detect_codebase_layout() bail out, and that must not sink an otherwise complete call.
     project_dir_value = ctx.obj.get("project_dir") if ctx.obj else None
+    needs_detection = bool(project_dir_value) and not (odoo_dir and addons_path)
     detected_odoo_dir, detected_version, detected_addons_path = (
-        _detect_project_layout(project_dir_value) if project_dir_value else (None, None, None)
+        _detect_project_layout(project_dir_value) if needs_detection else (None, None, None)
     )
 
     odoo_dir_path, odoo_version = _resolve_odoo_dir_and_version(odoo_dir, detected_odoo_dir, detected_version)
