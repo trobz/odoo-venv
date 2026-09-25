@@ -27,7 +27,7 @@ odoo-venv create [OPTIONS]
 | `--odoo-dir` | Auto | Path to Odoo source code. |
 | `--addons-path` | — | Comma-separated list of addons paths. |
 | `--preset` | — | Use a preset of options. Preset values can be overridden by other options. |
-| `--project-dir` | — | Path to project directory. Auto-detects `--addons-path`, `--odoo-dir` and applies `--preset=project`. |
+| `--project-dir` | — | Path to project directory. Auto-detects `--addons-path`, `--odoo-dir` and applies `--preset=project`. Auto-detection is skipped when both `--odoo-dir` and `--addons-path` are given. |
 
 ### Install controls
 
@@ -92,6 +92,15 @@ odoo-venv create --preset local
 
 ```bash
 odoo-venv create --project-dir ~/code/my-odoo-project
+```
+
+**Project directory with an out-of-tree codebase** — when the project directory holds no
+Odoo source of its own, pass both paths explicitly and layout auto-detection is skipped:
+
+```bash
+odoo-venv create --project-dir ~/my-instance \
+  --odoo-dir /opt/odoo/code/odoo/odoo/20.0/ \
+  --addons-path /opt/odoo/code/odoo/odoo/20.0/addons,/opt/odoo/code/odoo/enterprise/20.0
 ```
 
 **Dry run to preview:**

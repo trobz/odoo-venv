@@ -198,3 +198,70 @@ class TestDefaultCommonPreset:
         # local preset's packages should be present (merged via load_presets)
         assert "debugpy" in kwargs["extra_requirements"]
         assert "ipython" in kwargs["extra_requirements"]
+
+
+class TestProjectDirDetectionSkip:
+    """--project-dir must not force layout detection when both paths are explicit."""
+
+    @_MOCK_VERSION
+    @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
+    @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
+    @patch("odoo_venv.cli.main.create_odoo_venv")
+    def test_detection_skipped_when_both_paths_explicit(self, mock_create, mock_detect, mock_load, mock_ver):
+        result = runner.invoke(
+            app,
+            [*_BASE_ARGS, "--project-dir", "/opt/project", "--addons-path", "/opt/addons"],
+        )
+
+        assert result.exit_code == 0, result.output
+        mock_detect.assert_not_called()
+        _, kwargs = mock_create.call_args
+        assert kwargs["addons_paths"] == ["/opt/addons"]
+        # --preset=project is still auto-applied by the --project-dir callback
+        assert "pdfminer.six" in kwargs["extra_requirements"]
+
+    @_MOCK_VERSION
+    @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
+    @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
+    @patch("odoo_venv.cli.main.create_odoo_venv")
+    def test_detection_runs_when_addons_path_missing(self, mock_create, mock_detect, mock_load, mock_ver):
+        result = runner.invoke(app, [*_BASE_ARGS, "--project-dir", "/opt/project"])
+
+        assert result.exit_code == 0, result.output
+        mock_detect.assert_called_once_with("/opt/project")
+
+    @_MOCK_VERSION
+    @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
+    @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
+    @patch("odoo_venv.cli.main.create_odoo_venv")
+    def test_detection_runs_when_odoo_dir_missing(self, mock_create, mock_detect, mock_load, mock_ver):
+        result = runner.invoke(
+            app,
+            ["create", "--project-dir", "/opt/project", "--addons-path", "/opt/addons"],
+        )
+
+        # No --odoo-dir and detection returns nothing → the usual "--odoo-dir is required" exit.
+        assert result.exit_code == 1, result.output
+        mock_detect.assert_called_once_with("/opt/project")
+
+    @_MOCK_VERSION
+    @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
+    @patch("odoo_venv.cli.main.create_odoo_venv")
+    def test_undetectable_project_dir_succeeds_with_explicit_paths(self, mock_create, mock_load, mock_ver, tmp_path):
+        """Regression: an empty project dir used to abort with "No codebase layout detected"."""
+        project_dir = tmp_path / "instance"
+        project_dir.mkdir()
+
+        result = runner.invoke(
+            app,
+            [
+                *_BASE_ARGS,
+                "--project-dir",
+                str(project_dir),
+                "--addons-path",
+                "/opt/addons",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "No codebase layout detected" not in result.output
