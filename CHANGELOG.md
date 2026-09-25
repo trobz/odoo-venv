@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.26.1 (2026-09-25)
+
+### Bug Fixes
+
+- **create**: Skip layout detection when odoo-dir and addons-path are explicit
+  ([`d447eff`](https://github.com/trobz/odoo-venv/commit/d447effa262bd47069e8a44a7d9a883719a6828f))
+
+
 ## v1.26.0 (2026-08-18)
 
 ### Features
