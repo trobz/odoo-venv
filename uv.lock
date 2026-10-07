@@ -1,9 +1,9 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10"
 
 [options]
-exclude-newer = "2026-06-02T00:00:00Z"
+exclude-newer = "2026-10-07T00:00:00Z"
 
 [[package]]
 name = "annotated-doc"
@@ -239,15 +239,15 @@ wheels = [
 
 [[package]]
 name = "odoo-addons-path"
-version = "1.4.0"
+version = "2.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pyyaml" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7f/97/948c0657e71b1b689bed6895215a6a708be94d9cf3ebede4862d40843944/odoo_addons_path-1.4.0.tar.gz", hash = "sha256:a00f4ca5cea78ee4dd885dbfc125f4defb4b11e3cc130f19fae7c15468e0aaf0", size = 460761, upload-time = "2026-05-22T09:33:41.891Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e2/06/dd38a81fd2dbad576dba58c44de9e687f471a03f348ca285a765b37789f1/odoo_addons_path-2.0.1.tar.gz", hash = "sha256:589d397d7740474f453f6cd54d6b998f97a0db763f0ea135987ec3d2bdb2b730", size = 510711, upload-time = "2026-09-29T04:07:04.177Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/32/30/f2408ebcb36ff59cced027d8b369f2ccf319acd8b99916f93eba0822cad6/odoo_addons_path-1.4.0-py3-none-any.whl", hash = "sha256:3f8d65671c4fd6a60070598dbf40eeef902a590a1990268d1db41823d4a16e31", size = 21552, upload-time = "2026-05-22T09:33:40.793Z" },
+    { url = "https://files.pythonhosted.org/packages/09/84/3a4de4c65ea302af22cb99ddfbcdfcb899fc19978662c1bec8bb9d748b4c/odoo_addons_path-2.0.1-py3-none-any.whl", hash = "sha256:ba880d4d67ba46d613664f5ce2ef1427637e80157d6f6287f712ee805e1a718a", size = 22420, upload-time = "2026-09-29T04:07:02.991Z" },
 ]
 
 [[package]]
@@ -278,7 +278,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "odoo-addons-path", specifier = "==1.4.0" },
+    { name = "odoo-addons-path", specifier = "==2.0.1" },
     { name = "packaging", specifier = "==26.2" },
     { name = "tomli", specifier = "==2.4.1" },
     { name = "typer", specifier = "==0.26.5" },

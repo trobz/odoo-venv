@@ -14,7 +14,7 @@ dependencies = [
     "typing_extensions==4.15.0",
     "tomli==2.4.1",
     "packaging==26.2",
-    "odoo-addons-path==1.4.0",
+    "odoo-addons-path==2.0.1",
 ]
 
 [dependency-groups]
