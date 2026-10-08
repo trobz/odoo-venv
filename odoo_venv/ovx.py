@@ -12,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import typer
-from odoo_addons_path import get_odoo_version_from_release
+from odoo_addons_path import get_addons_path, get_odoo_version_from_release
 
 from odoo_venv.exceptions import (
     ConflictingOdooSeriesError,
@@ -242,7 +242,7 @@ def run_ovx(
         if not no_launcher:
             create_launcher(series, target, odoo_dir=odoo_dir, force=False)
 
-        addons_path_parts = _resolve_addons_path(resolved, addon_paths, extra_addons)
+        addons_path_parts = _resolve_addons_path(target, addon_paths, extra_addons, odoo_dir=odoo_dir)
 
         db_name_managed, argv = _build_db_and_argv(target, addon_paths, addons_path_parts, database, extra_args)
 
@@ -257,25 +257,35 @@ def run_ovx(
 
 
 def _resolve_addons_path(
-    resolved: ResolvedVenv,
+    base: Path | None,
     addon_paths: list[Path],
     extra: list[str] | None = None,
+    *,
+    odoo_dir: Path | None = None,
 ) -> list[str]:
-    """Build the --addons-path list: venv config → extra → each addon's parent, deduped."""
-    parts: list[str] = []
-    if not resolved.fresh and resolved.path is not None:
+    """Build the --addons-path list by delegating to odoo_addons_path.get_addons_path.
+
+    Merges the base venv's recorded `addons_path`, `--addons-path` entries, and each addon's
+    parent directory, then resolves them with `codebase=None` so the process CWD can never
+    leak into the result. An explicit `--odoo-dir` overrides the venv's recorded `odoo_dir`.
+    """
+    stored: list[str] = []
+    config_odoo_dir: Path | None = None
+    if base is not None:
         with contextlib.suppress(FileNotFoundError):
-            args, _, _, _ = read_venv_config(resolved.path)
-            stored = args.get("addons_path", "")
-            if stored:
-                parts = [p for p in str(stored).split(",") if p]
-            elif (odoo_dir_str := args.get("odoo_dir", "")) and isinstance(odoo_dir_str, str):
-                odoo_dir = Path(odoo_dir_str)
-                for candidate in [odoo_dir / "addons", odoo_dir / "odoo" / "addons"]:
-                    if candidate.is_dir():
-                        parts.append(str(candidate))
-    parts = parts + (extra or []) + [str(p.parent) for p in addon_paths]
-    return list(dict.fromkeys(parts))
+            args, _, _, _ = read_venv_config(base)
+            stored_val = args.get("addons_path", "")
+            if stored_val:
+                stored = [p for p in str(stored_val).split(",") if p]
+            odoo_dir_str = args.get("odoo_dir", "")
+            if odoo_dir_str and isinstance(odoo_dir_str, str):
+                config_odoo_dir = Path(odoo_dir_str)
+
+    effective_odoo_dir = odoo_dir or config_odoo_dir
+    addons_dirs = [Path(p) for p in stored] + [Path(p) for p in (extra or [])] + [p.parent for p in addon_paths]
+
+    result = get_addons_path(codebase=None, addons_dir=addons_dirs, odoo_dir=effective_odoo_dir)
+    return [p for p in result.split(",") if p]
 
 
 def _build_db_and_argv(

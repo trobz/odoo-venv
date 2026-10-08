@@ -431,75 +431,106 @@ class TestRunWithDbLifecycle:
 
 
 class TestResolveAddonsPath:
-    def _make_resolved_existing(self, tmp_path: Path, stored_paths: list[str]):
+    def test_merges_stored_extra_and_addon_parents(self, tmp_path):
         venv = tmp_path / "venv"
         venv.mkdir()
-        write_venv_config(
-            venv,
-            {"addons_path": ",".join(stored_paths)} if stored_paths else {},
-            odoo_version="17.0",
-        )
-        return ResolvedVenv(path=venv, fresh=False, source="explicit")
+        stored_repo = tmp_path / "stored_repo"
+        (stored_repo / "mod_stored").mkdir(parents=True)
+        (stored_repo / "mod_stored" / "__manifest__.py").write_text("{}")
+        write_venv_config(venv, {"addons_path": str(stored_repo)}, odoo_version="17.0")
 
-    def test_merges_stored_extra_parent(self, tmp_path):
-        resolved = self._make_resolved_existing(tmp_path, ["/a", "/b"])
-        addon = tmp_path / "my_addon"
-        addon.mkdir()
-        result = _resolve_addons_path(resolved, [addon], extra=["/c"])
-        assert result == ["/a", "/b", "/c", str(addon.parent)]
+        extra_repo = tmp_path / "extra_repo"
+        (extra_repo / "mod_extra").mkdir(parents=True)
+        (extra_repo / "mod_extra" / "__manifest__.py").write_text("{}")
 
-    def test_dedups_preserving_order(self, tmp_path):
-        resolved = self._make_resolved_existing(tmp_path, ["/a", "/b"])
-        addon = tmp_path / "my_addon"
-        addon.mkdir()
-        result = _resolve_addons_path(resolved, [addon], extra=["/b", "/c", str(addon.parent)])
-        assert result == ["/a", "/b", "/c", str(addon.parent)]
-        assert result.count("/b") == 1
-        assert result.count(str(addon.parent)) == 1
+        addon_parent = tmp_path / "addons_parent"
+        addon = addon_parent / "my_addon"
+        addon.mkdir(parents=True)
+        (addon / "__manifest__.py").write_text("{}")
 
-    def test_fresh_venv_includes_extra_and_addon_parent(self, tmp_path):
-        resolved = ResolvedVenv(path=None, fresh=True, source="fresh")
-        addon = tmp_path / "my_addon"
-        addon.mkdir()
-        result = _resolve_addons_path(resolved, [addon], extra=["/x"])
-        assert str(addon.parent) in result
-        assert "/x" in result
+        result = _resolve_addons_path(venv, [addon], extra=[str(extra_repo)])
 
-    def test_addons_path_order_venv_extra_parents(self, tmp_path):
-        resolved = self._make_resolved_existing(tmp_path, ["/venv_stored"])
-        parent_a = tmp_path / "src_a"
-        parent_b = tmp_path / "src_b"
-        addon_a = parent_a / "mod_a"
-        addon_b = parent_b / "mod_b"
-        parent_a.mkdir()
-        parent_b.mkdir()
-        addon_a.mkdir()
-        addon_b.mkdir()
+        assert str(stored_repo.resolve()) in result
+        assert str(extra_repo.resolve()) in result
+        assert str(addon_parent.resolve()) in result
 
-        result = _resolve_addons_path(resolved, [addon_a, addon_b], extra=["/x"])
-        assert result.index("/venv_stored") < result.index("/x")
-        assert result.index("/x") < result.index(str(parent_a))
-        assert result.index(str(parent_a)) < result.index(str(parent_b))
+    def test_dedups_shared_parent(self, tmp_path):
+        venv = tmp_path / "venv"
+        venv.mkdir()
+        write_venv_config(venv, {}, odoo_version="17.0")
 
-    def test_shared_parent_deduped(self, tmp_path):
-        resolved = self._make_resolved_existing(tmp_path, [])
         shared = tmp_path / "addons"
         addon_a = shared / "mod_a"
         addon_b = shared / "mod_b"
-        shared.mkdir()
-        addon_a.mkdir()
-        addon_b.mkdir()
+        addon_a.mkdir(parents=True)
+        addon_b.mkdir(parents=True)
+        (addon_a / "__manifest__.py").write_text("{}")
+        (addon_b / "__manifest__.py").write_text("{}")
 
-        result = _resolve_addons_path(resolved, [addon_a, addon_b])
-        assert result.count(str(shared)) == 1
+        result = _resolve_addons_path(venv, [addon_a, addon_b], extra=[str(shared)])
+        assert result.count(str(shared.resolve())) == 1
 
-    def test_extra_already_in_venv_config_deduped(self, tmp_path):
-        resolved = self._make_resolved_existing(tmp_path, ["/x"])
+    def test_missing_venv_config_degrades_gracefully(self, tmp_path):
+        missing_venv = tmp_path / "no_such_venv"
+        addon_parent = tmp_path / "addons_parent"
+        addon = addon_parent / "my_addon"
+        addon.mkdir(parents=True)
+        (addon / "__manifest__.py").write_text("{}")
+
+        result = _resolve_addons_path(missing_venv, [addon])
+        assert str(addon_parent.resolve()) in result
+
+    def test_odoo_dir_core_addons_present_and_first(self, tmp_path):
+        venv = tmp_path / "venv"
+        venv.mkdir()
+        write_venv_config(venv, {}, odoo_version="17.0")
+
+        odoo_dir = tmp_path / "odoo"
+        (odoo_dir / "addons").mkdir(parents=True)
+
+        addon_parent = tmp_path / "addons_parent"
+        addon = addon_parent / "my_addon"
+        addon.mkdir(parents=True)
+        (addon / "__manifest__.py").write_text("{}")
+
+        result = _resolve_addons_path(venv, [addon], odoo_dir=odoo_dir)
+        core = str((odoo_dir / "addons").resolve())
+        assert core in result
+        assert result.index(core) < result.index(str(addon_parent.resolve()))
+
+    def test_explicit_odoo_dir_overrides_stored_config(self, tmp_path):
+        stored_odoo = tmp_path / "stored_odoo"
+        (stored_odoo / "addons").mkdir(parents=True)
+        explicit_odoo = tmp_path / "explicit_odoo"
+        (explicit_odoo / "addons").mkdir(parents=True)
+
+        venv = tmp_path / "venv"
+        venv.mkdir()
+        write_venv_config(venv, {"odoo_dir": str(stored_odoo)}, odoo_version="17.0")
+
         addon = tmp_path / "my_addon"
         addon.mkdir()
-        result = _resolve_addons_path(resolved, [addon], extra=["/x"])
-        assert result.count("/x") == 1
-        assert result.index("/x") == 0
+        (addon / "__manifest__.py").write_text("{}")
+
+        result = _resolve_addons_path(venv, [addon], odoo_dir=explicit_odoo)
+        assert str((explicit_odoo / "addons").resolve()) in result
+        assert str((stored_odoo / "addons").resolve()) not in result
+
+    def test_result_independent_of_cwd(self, tmp_path, monkeypatch):
+        venv = tmp_path / "venv"
+        venv.mkdir()
+        write_venv_config(venv, {}, odoo_version="17.0")
+
+        addon_parent = tmp_path / "addons_parent"
+        addon = addon_parent / "my_addon"
+        addon.mkdir(parents=True)
+        (addon / "__manifest__.py").write_text("{}")
+
+        monkeypatch.chdir(tmp_path)
+        result_a = _resolve_addons_path(venv, [addon])
+        monkeypatch.chdir(tmp_path.parent)
+        result_b = _resolve_addons_path(venv, [addon])
+        assert result_a == result_b
 
 
 # ---------------------------------------------------------------------------
@@ -508,6 +539,7 @@ class TestResolveAddonsPath:
 
 
 class TestRunOvxAddonsPath:
+    @patch("odoo_venv.ovx._resolve_addons_path")
     @patch("odoo_venv.ovx.run_with_db_lifecycle", return_value=0)
     @patch("odoo_venv.ovx.create_launcher")
     @patch("odoo_venv.ovx.install_missing_python_deps", return_value=[])
@@ -522,6 +554,7 @@ class TestRunOvxAddonsPath:
         mock_missing,
         mock_launcher,
         mock_run,
+        mock_addons_path,
         tmp_path,
     ):
         venv = tmp_path / "venv"
@@ -536,6 +569,7 @@ class TestRunOvxAddonsPath:
 
         mock_resolve.return_value = ResolvedVenv(path=venv, fresh=False, source="explicit")
         mock_clone.return_value = (venv, lambda: None)
+        mock_addons_path.return_value = ["/extra/path"]
 
         run_ovx(
             [addon],
@@ -548,6 +582,7 @@ class TestRunOvxAddonsPath:
             addons_path=["/extra/path"],
         )
 
+        mock_addons_path.assert_called_once_with(venv, [addon], ["/extra/path"], odoo_dir=None)
         called_argv = mock_run.call_args[0][0]
         addons_path_val = called_argv[called_argv.index("--addons-path") + 1]
         assert "/extra/path" in addons_path_val
