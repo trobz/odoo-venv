@@ -22,7 +22,7 @@ from odoo_venv.exceptions import (
     VenvCreationRequiresOdooDirError,
 )
 from odoo_venv.launcher import create_launcher
-from odoo_venv.main import create_odoo_venv
+from odoo_venv.main import create_and_register_venv, resolve_common_preset
 from odoo_venv.ovx_resolver import (
     ResolvedVenv,
     clone_venv,
@@ -31,7 +31,7 @@ from odoo_venv.ovx_resolver import (
     read_venv_meta,
     resolve_base_venv,
 )
-from odoo_venv.utils import read_venv_config
+from odoo_venv.utils import read_venv_config, split_escaped
 
 
 def user_supplied_db(extra_args: list[str]) -> bool:
@@ -142,13 +142,59 @@ def _prepare_target(
         target = clone_dir / f"odoo-{series}-venv"
         typer.secho(f"Creating fresh venv at {target}...", fg=typer.colors.CYAN)
         all_parents = list(dict.fromkeys([*(extra_addons_paths or []), *[str(p.parent) for p in addon_paths]]))
-        create_odoo_venv(
+
+        preset = resolve_common_preset()
+        install_odoo = preset.install_odoo if preset and preset.install_odoo is not None else True
+        install_odoo_requirements = (
+            preset.install_odoo_requirements if preset and preset.install_odoo_requirements is not None else True
+        )
+        ignore_from_odoo_requirements = preset.ignore_from_odoo_requirements if preset else None
+        install_addons_dirs_requirements = bool(preset and preset.install_addons_dirs_requirements)
+        ignore_from_addons_dirs_requirements = preset.ignore_from_addons_dirs_requirements if preset else None
+        ignore_from_addons_manifests_requirements = preset.ignore_from_addons_manifests_requirements if preset else None
+        extra_requirements_file = preset.extra_requirements_file if preset else None
+        extra_requirement = preset.extra_requirement if preset else None
+        extra_commands = preset.extra_commands if preset else None
+        extra_requirements_list = split_escaped(extra_requirement) if extra_requirement else None
+
+        config_args: dict[str, str | bool] = {
+            "preset": "common" if preset else "",
+            "python_version": "",
+            "odoo_dir": str(odoo_dir),
+            "venv_dir": str(target),
+            "addons_path": ",".join(all_parents),
+            "install_odoo": install_odoo,
+            "install_odoo_requirements": install_odoo_requirements,
+            "ignore_from_odoo_requirements": ignore_from_odoo_requirements or "",
+            "install_addons_dirs_requirements": install_addons_dirs_requirements,
+            "ignore_from_addons_dirs_requirements": ignore_from_addons_dirs_requirements or "",
+            "install_addons_manifests_requirements": True,
+            "ignore_from_addons_manifests_requirements": ignore_from_addons_manifests_requirements or "",
+            "extra_requirements_file": extra_requirements_file or "",
+            "extra_requirement": extra_requirement or "",
+            "skip_on_failure": False,
+            "create_launcher": False,
+            "project_dir": "",
+        }
+
+        create_and_register_venv(
             odoo_version=series,
-            odoo_dir=odoo_dir,
+            odoo_dir=str(odoo_dir),
             venv_dir=str(target),
+            config_args=config_args,
             python_version=None,
-            install_addons_manifests_requirements=True,
+            install_odoo=install_odoo,
+            install_odoo_requirements=install_odoo_requirements,
+            ignore_from_odoo_requirements=ignore_from_odoo_requirements,
             addons_paths=all_parents,
+            install_addons_dirs_requirements=install_addons_dirs_requirements,
+            ignore_from_addons_dirs_requirements=ignore_from_addons_dirs_requirements,
+            install_addons_manifests_requirements=True,
+            ignore_from_addons_manifests_requirements=ignore_from_addons_manifests_requirements,
+            extra_requirements_file=extra_requirements_file,
+            extra_requirements=extra_requirements_list,
+            extra_commands=extra_commands,
+            create_launcher_flag=False,
         )
         return target, cleanup
 

@@ -8,12 +8,16 @@ import tempfile
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from importlib.metadata import version
 from pathlib import Path
 
 import typer
 from packaging.markers import Marker, default_environment
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.version import parse as parse_version
+
+from odoo_venv.launcher import create_launcher
+from odoo_venv.utils import Preset, load_presets, write_venv_config
 
 
 @dataclass
@@ -1224,3 +1228,84 @@ def create_odoo_venv(  # noqa: C901
         sys.exit(exit_code)
 
     return result
+
+
+def resolve_common_preset() -> "Preset | None":
+    """Load the 'common' preset if present, mirroring the CLI's silent auto-apply.
+
+    Returns None if no presets file or no `[common]` section exists.
+    """
+    try:
+        presets = load_presets()
+    except FileNotFoundError:
+        return None
+    return presets.get("common")
+
+
+def create_and_register_venv(
+    *,
+    odoo_version: str,
+    odoo_dir: str,
+    venv_dir: str,
+    config_args: dict[str, str | bool],
+    python_version: str | None = None,
+    install_odoo: bool = True,
+    install_odoo_requirements: bool = True,
+    ignore_from_odoo_requirements: str | None = None,
+    addons_paths: list[str] | None = None,
+    install_addons_dirs_requirements: bool = False,
+    ignore_from_addons_dirs_requirements: str | None = None,
+    install_addons_manifests_requirements: bool = False,
+    ignore_from_addons_manifests_requirements: str | None = None,
+    extra_requirements_file: str | None = None,
+    extra_requirements: list[str] | None = None,
+    extra_commands: list[dict] | None = None,
+    verbose: bool = False,
+    skip_on_failure: bool = False,
+    force: bool = False,
+    ignore_sources: dict[str, str] | None = None,
+    create_launcher_flag: bool = False,
+) -> Path:
+    """Create an Odoo venv, optionally a launcher, and write its .odoo-venv.toml.
+
+    Shared by `odoo-venv create` and `ovx`'s fresh-venv path, so a venv created by either
+    carries identical config and is discoverable by `odoo-venv list`.
+    """
+    venv_dir_path = Path(venv_dir).expanduser().resolve()
+    odoo_dir_path = Path(odoo_dir).expanduser().resolve()
+
+    result = create_odoo_venv(
+        odoo_version=odoo_version,
+        odoo_dir=str(odoo_dir_path),
+        venv_dir=venv_dir,
+        python_version=python_version,
+        install_odoo=install_odoo,
+        install_odoo_requirements=install_odoo_requirements,
+        ignore_from_odoo_requirements=ignore_from_odoo_requirements,
+        addons_paths=addons_paths,
+        install_addons_dirs_requirements=install_addons_dirs_requirements,
+        ignore_from_addons_dirs_requirements=ignore_from_addons_dirs_requirements,
+        install_addons_manifests_requirements=install_addons_manifests_requirements,
+        ignore_from_addons_manifests_requirements=ignore_from_addons_manifests_requirements,
+        extra_requirements_file=extra_requirements_file,
+        extra_requirements=extra_requirements,
+        extra_commands=extra_commands,
+        verbose=verbose,
+        skip_on_failure=skip_on_failure,
+        force=force,
+        ignore_sources=ignore_sources,
+    )
+
+    if create_launcher_flag:
+        create_launcher(odoo_version, venv_dir_path, odoo_dir=odoo_dir_path, force=True)
+
+    write_venv_config(
+        venv_dir_path,
+        config_args,
+        odoo_version,
+        tool_version=version("odoo-venv"),
+        requirements=result.requirements or None,
+        ignored=result.ignored or None,
+    )
+
+    return venv_dir_path

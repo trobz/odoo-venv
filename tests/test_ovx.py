@@ -587,17 +587,21 @@ class TestRunOvxAddonsPath:
         addons_path_val = called_argv[called_argv.index("--addons-path") + 1]
         assert "/extra/path" in addons_path_val
 
-    @patch("odoo_venv.ovx.create_odoo_venv")
+    @patch("odoo_venv.ovx.create_and_register_venv")
+    @patch("odoo_venv.ovx.resolve_common_preset", return_value=None)
     @patch("odoo_venv.ovx.run_with_db_lifecycle", return_value=0)
     @patch("odoo_venv.ovx.create_launcher")
     @patch("odoo_venv.ovx.resolve_base_venv")
+    @patch("odoo_venv.ovx.get_odoo_version_from_release", return_value="17.0")
     @patch("odoo_venv.ovx.get_addon_series", return_value="17.0")
     def test_fresh_venv_receives_all_addons_paths(
         self,
         mock_series,
+        mock_release_version,
         mock_resolve,
         mock_launcher,
         mock_run,
+        mock_preset,
         mock_create_venv,
         tmp_path,
     ):
@@ -613,6 +617,7 @@ class TestRunOvxAddonsPath:
             fresh_venv.mkdir(parents=True, exist_ok=True)
             (fresh_venv / "bin").mkdir(exist_ok=True)
             (fresh_venv / "bin" / "python").write_text("#!/bin/python")
+            return fresh_venv
 
         mock_create_venv.side_effect = fake_create_venv
         mock_resolve.return_value = ResolvedVenv(path=None, fresh=True, source="fresh")

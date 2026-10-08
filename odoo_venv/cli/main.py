@@ -23,7 +23,7 @@ from rich.table import Table
 
 from odoo_venv.exceptions import PresetNotFoundError
 from odoo_venv.launcher import create_launcher
-from odoo_venv.main import _freeze_venv, _resolve_manifest_dep, create_odoo_venv
+from odoo_venv.main import _freeze_venv, _resolve_manifest_dep, create_and_register_venv, create_odoo_venv
 from odoo_venv.utils import (
     VENV_CONFIG_FILENAME,
     load_presets,
@@ -556,31 +556,6 @@ def create(
         },
     )
 
-    result = create_odoo_venv(
-        odoo_version=odoo_version,
-        odoo_dir=str(odoo_dir_path),
-        venv_dir=venv_dir,
-        python_version=python_version,
-        install_odoo=install_odoo,
-        install_odoo_requirements=install_odoo_requirements,
-        ignore_from_odoo_requirements=ignore_from_odoo_requirements,
-        addons_paths=addons_path_list,
-        install_addons_dirs_requirements=install_addons_dirs_requirements,
-        ignore_from_addons_dirs_requirements=ignore_from_addons_dirs_requirements,
-        install_addons_manifests_requirements=install_addons_manifests_requirements,
-        ignore_from_addons_manifests_requirements=ignore_from_addons_manifests_requirements,
-        extra_requirements_file=extra_requirements_file,
-        extra_requirements=extra_requirements_list,
-        extra_commands=extra_commands,
-        verbose=verbose,
-        skip_on_failure=skip_on_failure,
-        force=force,
-        ignore_sources=ignore_sources,
-    )
-
-    if create_launcher_flag:
-        create_launcher(odoo_version, venv_dir_path, odoo_dir=odoo_dir_path, force=True)
-
     effective_preset = preset
     if not effective_preset and project_dir_value:
         effective_preset = "project"
@@ -607,13 +582,28 @@ def create(
         "project_dir": project_dir_value or "",
     }
 
-    write_venv_config(
-        venv_dir_path,
-        config_args,
-        odoo_version,
-        tool_version=version("odoo-venv"),
-        requirements=result.requirements or None,
-        ignored=result.ignored or None,
+    create_and_register_venv(
+        odoo_version=odoo_version,
+        odoo_dir=str(odoo_dir_path),
+        venv_dir=venv_dir,
+        config_args=config_args,
+        python_version=python_version,
+        install_odoo=install_odoo,
+        install_odoo_requirements=install_odoo_requirements,
+        ignore_from_odoo_requirements=ignore_from_odoo_requirements,
+        addons_paths=addons_path_list,
+        install_addons_dirs_requirements=install_addons_dirs_requirements,
+        ignore_from_addons_dirs_requirements=ignore_from_addons_dirs_requirements,
+        install_addons_manifests_requirements=install_addons_manifests_requirements,
+        ignore_from_addons_manifests_requirements=ignore_from_addons_manifests_requirements,
+        extra_requirements_file=extra_requirements_file,
+        extra_requirements=extra_requirements_list,
+        extra_commands=extra_commands,
+        verbose=verbose,
+        skip_on_failure=skip_on_failure,
+        force=force,
+        ignore_sources=ignore_sources,
+        create_launcher_flag=create_launcher_flag,
     )
 
 
