@@ -212,7 +212,6 @@ def run_ovx(
     keep_clone: bool,
     no_launcher: bool,
     extra_args: list[str],
-    cwd: Path,
     addons_path: list[str] | None = None,
 ) -> int:
     """Main ovx orchestrator. Returns Odoo's exit code."""
@@ -222,7 +221,7 @@ def run_ovx(
     venv_meta = read_venv_meta(venv_dir) if venv_dir is not None and venv_dir.exists() else None
     series = _resolve_series(addon_paths, odoo_dir=odoo_dir, venv_dir=venv_dir, venv_meta=venv_meta)
 
-    resolved = resolve_base_venv(series, venv_dir=venv_dir, cwd=cwd, odoo_dir=odoo_dir)
+    resolved = resolve_base_venv(venv_dir=venv_dir, odoo_dir=odoo_dir)
 
     target, cleanup = _prepare_target(resolved, addon_paths, series, odoo_dir, keep_clone, extra_addons)
     try:

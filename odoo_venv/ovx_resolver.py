@@ -11,8 +11,8 @@ from typing import Literal
 
 from odoo_addons_path import get_odoo_version_from_manifest
 
-from odoo_venv.cli.main import _discover_venvs, _freeze_venv
 from odoo_venv.exceptions import OdooVenvError
+from odoo_venv.main import _freeze_venv
 from odoo_venv.utils import read_venv_config
 
 
@@ -20,7 +20,7 @@ from odoo_venv.utils import read_venv_config
 class ResolvedVenv:
     path: Path | None
     fresh: bool
-    source: Literal["explicit", "discovered", "fresh"]
+    source: Literal["explicit", "fresh"]
 
 
 def get_addon_series(addon_path: Path) -> str | None:
@@ -45,55 +45,20 @@ def read_venv_meta(venv_dir: Path) -> dict[str, str]:
 
 
 def resolve_base_venv(
-    manifest_series: str,
     *,
     venv_dir: Path | None,
-    cwd: Path,
     odoo_dir: Path | None,
 ) -> ResolvedVenv:
     """Resolve the base venv to use for an ovx run.
 
-    Priority:
-      1. Explicit --venv-dir (must exist and version-match)
-      2. Auto-discover from cwd (exactly one match)
-      3. Fresh-create signal (requires --odoo-dir)
+    The series disagreement check happens upstream in `_resolve_series`; by the time this
+    function runs, `venv_dir` (if given) is already known to agree with every other source.
     """
-    if venv_dir is not None:
-        _, meta, _, _ = read_venv_config(venv_dir)
-        found_version = meta.get("odoo_version", "")
-        if found_version != manifest_series:
-            raise OdooVenvError(  # noqa: TRY003
-                f"Venv at {venv_dir} is for Odoo {found_version}, "
-                f"but addon requires {manifest_series}. "
-                f"Pass a matching --venv-dir or omit it for auto-discovery."
-            )
+    if venv_dir is not None and venv_dir.exists():
         return ResolvedVenv(path=venv_dir, fresh=False, source="explicit")
 
-    discovered = _discover_venvs(cwd)
-    matches = []
-    for venv in discovered:
-        try:
-            _, meta, _, _ = read_venv_config(venv)
-        except FileNotFoundError:
-            continue
-        if meta.get("odoo_version", "") == manifest_series:
-            matches.append(venv)
-
-    if len(matches) == 1:
-        return ResolvedVenv(path=matches[0], fresh=False, source="discovered")
-
-    if len(matches) > 1:
-        paths = ", ".join(str(m) for m in matches)
-        raise OdooVenvError(  # noqa: TRY003
-            f"Found {len(matches)} venvs for Odoo {manifest_series} ({paths}). Pass --venv-dir to disambiguate."
-        )
-
-    # Zero matches
-    if odoo_dir is None:
-        raise OdooVenvError(  # noqa: TRY003
-            f"No venv found for Odoo {manifest_series} in {cwd}. "
-            f"Pass --odoo-dir to create a fresh venv, or --venv-dir to specify one."
-        )
+    # No existing explicit venv: fresh-create. odoo_dir is guaranteed not None here when
+    # venv_dir is also None, because the CLI enforces at least one of the two flags.
     return ResolvedVenv(path=None, fresh=True, source="fresh")
 
 

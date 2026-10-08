@@ -699,9 +699,27 @@ def _process_requirement_line(
             return True, pkg_name
 
 
+def _is_uv_venv(venv_dir: Path) -> bool:
+    """Return True if the venv was created by uv (detected via pyvenv.cfg)."""
+    cfg = venv_dir / "pyvenv.cfg"
+    try:
+        return any(line.startswith("uv =") for line in cfg.read_text().splitlines())
+    except OSError:
+        return False
+
+
 def _freeze_venv(venv_dir: Path) -> dict[str, str]:
-    """Run ``uv pip freeze`` on a venv and return ``{normalized_name: version}``."""
-    cmd = ["uv", "pip", "freeze", "--python", str(venv_dir)]
+    """Run ``uv pip freeze`` or ``pip freeze`` on a venv depending on how it was created.
+
+    Returns a ``{normalized_name: version}`` dict.
+    Uses the venv's own ``pip`` for venvs not created by uv, because
+    ``uv pip freeze`` returns empty output in that case.
+    """
+    if _is_uv_venv(venv_dir):
+        cmd = ["uv", "pip", "freeze", "--python", str(venv_dir)]
+    else:
+        cmd = [str(venv_dir / "bin" / "pip"), "freeze", "--all"]
+
     result = subprocess.run(cmd, capture_output=True, text=True, check=True)  # noqa: S603
     pkgs: dict[str, str] = {}
     for line in result.stdout.splitlines():

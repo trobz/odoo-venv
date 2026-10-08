@@ -11,7 +11,6 @@ from odoo_venv.cli.ovx_cmd import app
 from odoo_venv.exceptions import (
     ConflictingOdooSeriesError,
     OdooSeriesUndeterminedError,
-    OdooVenvError,
     VenvCreationRequiresOdooDirError,
 )
 from odoo_venv.ovx import (
@@ -64,47 +63,36 @@ def _make_venv(path: Path, odoo_version: str) -> Path:
 
 
 class TestResolveBaseVenv:
-    def test_explicit_venv_matching_version(self, tmp_path):
+    def test_explicit_venv_exists(self, tmp_path):
         venv = _make_venv(tmp_path / ".venv", "19.0")
-        resolved = resolve_base_venv("19.0", venv_dir=venv, cwd=tmp_path, odoo_dir=None)
+        resolved = resolve_base_venv(venv_dir=venv, odoo_dir=None)
         assert resolved.path == venv
         assert resolved.fresh is False
         assert resolved.source == "explicit"
 
-    def test_explicit_venv_version_mismatch(self, tmp_path):
-        venv = _make_venv(tmp_path / ".venv", "17.0")
-        with pytest.raises(OdooVenvError, match=r"17\.0"):
-            resolve_base_venv("19.0", venv_dir=venv, cwd=tmp_path, odoo_dir=None)
-
-    def test_discover_single_match(self, tmp_path):
-        _make_venv(tmp_path / ".venv", "19.0")
-        resolved = resolve_base_venv("19.0", venv_dir=None, cwd=tmp_path, odoo_dir=None)
-        assert resolved.path == tmp_path / ".venv"
-        assert resolved.source == "discovered"
-
-    def test_discover_multiple_matches_ambiguous(self, tmp_path):
-        _make_venv(tmp_path / ".venv1", "19.0")
-        _make_venv(tmp_path / ".venv2", "19.0")
-        with pytest.raises(OdooVenvError, match="disambiguate"):
-            resolve_base_venv("19.0", venv_dir=None, cwd=tmp_path, odoo_dir=None)
-
-    def test_discover_no_match_with_odoo_dir(self, tmp_path):
+    def test_venv_dir_missing_is_fresh(self, tmp_path):
+        missing = tmp_path / ".venv"
         odoo_dir = tmp_path / "odoo"
         odoo_dir.mkdir()
-        resolved = resolve_base_venv("19.0", venv_dir=None, cwd=tmp_path, odoo_dir=odoo_dir)
+        resolved = resolve_base_venv(venv_dir=missing, odoo_dir=odoo_dir)
+        assert resolved.path is None
         assert resolved.fresh is True
         assert resolved.source == "fresh"
+
+    def test_no_venv_dir_is_fresh(self, tmp_path):
+        odoo_dir = tmp_path / "odoo"
+        odoo_dir.mkdir()
+        resolved = resolve_base_venv(venv_dir=None, odoo_dir=odoo_dir)
         assert resolved.path is None
+        assert resolved.fresh is True
+        assert resolved.source == "fresh"
 
-    def test_discover_no_match_no_odoo_dir(self, tmp_path):
-        with pytest.raises(OdooVenvError, match="--odoo-dir"):
-            resolve_base_venv("19.0", venv_dir=None, cwd=tmp_path, odoo_dir=None)
-
-    def test_version_filter_ignores_wrong_series(self, tmp_path):
-        _make_venv(tmp_path / ".venv", "17.0")
-        # No 19.0 venv found, no odoo_dir → error
-        with pytest.raises(OdooVenvError, match="--odoo-dir"):
-            resolve_base_venv("19.0", venv_dir=None, cwd=tmp_path, odoo_dir=None)
+    def test_resolution_independent_of_cwd(self, tmp_path, monkeypatch):
+        venv = _make_venv(tmp_path / ".venv", "19.0")
+        monkeypatch.chdir(tmp_path.parent)
+        resolved = resolve_base_venv(venv_dir=venv, odoo_dir=None)
+        assert resolved.path == venv
+        assert resolved.source == "explicit"
 
 
 class TestResolveSeries:
@@ -557,7 +545,6 @@ class TestRunOvxAddonsPath:
             keep_clone=False,
             no_launcher=True,
             extra_args=[],
-            cwd=tmp_path,
             addons_path=["/extra/path"],
         )
 
@@ -604,7 +591,6 @@ class TestRunOvxAddonsPath:
             keep_clone=True,
             no_launcher=True,
             extra_args=[],
-            cwd=tmp_path,
             addons_path=["/oca/path"],
         )
 
@@ -656,7 +642,6 @@ class TestRunOvxAddonsPath:
             keep_clone=False,
             no_launcher=True,
             extra_args=[],
-            cwd=tmp_path,
         )
 
         mock_missing.assert_called_once()
@@ -683,7 +668,10 @@ class TestOvxCmdAddonsPathFlag:
         extra_b.mkdir()
 
         runner = CliRunner()
-        runner.invoke(app, [str(addon), "--addons-path", f"{extra_a},{extra_b}"])
+        runner.invoke(
+            app,
+            [str(addon), "--venv-dir", str(tmp_path / "venv"), "--addons-path", f"{extra_a},{extra_b}"],
+        )
 
         assert mock_run_ovx.called
         kwargs = mock_run_ovx.call_args[1]
@@ -697,7 +685,7 @@ class TestOvxCmdAddonsPathFlag:
         (addon / "__manifest__.py").write_text('{"name": "T", "version": "17.0.1.0.0"}')
 
         runner = CliRunner()
-        runner.invoke(app, [str(addon)])
+        runner.invoke(app, [str(addon), "--venv-dir", str(tmp_path / "venv")])
 
         assert mock_run_ovx.called
         kwargs = mock_run_ovx.call_args[1]
@@ -713,7 +701,7 @@ class TestOvxCmdAddonsPathFlag:
         (addon_b / "__manifest__.py").write_text('{"name": "B", "version": "17.0.1.0.0"}')
 
         runner = CliRunner()
-        runner.invoke(app, [f"{addon_a},{addon_b}"])
+        runner.invoke(app, [f"{addon_a},{addon_b}", "--venv-dir", str(tmp_path / "venv")])
 
         assert mock_run_ovx.called
         args = mock_run_ovx.call_args[0][0]
