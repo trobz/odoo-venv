@@ -12,8 +12,15 @@ from collections.abc import Callable
 from pathlib import Path
 
 import typer
+from odoo_addons_path import get_odoo_version_from_release
 
-from odoo_venv.exceptions import OdooVenvError
+from odoo_venv.exceptions import (
+    ConflictingOdooSeriesError,
+    OdooSeriesUndeterminedError,
+    OdooVenvError,
+    OdooVersionUndeterminedError,
+    VenvCreationRequiresOdooDirError,
+)
 from odoo_venv.launcher import create_launcher
 from odoo_venv.main import create_odoo_venv
 from odoo_venv.ovx_resolver import (
@@ -21,6 +28,7 @@ from odoo_venv.ovx_resolver import (
     clone_venv,
     get_addon_series,
     install_missing_python_deps,
+    read_venv_meta,
     resolve_base_venv,
 )
 from odoo_venv.utils import read_venv_config
@@ -157,6 +165,44 @@ def _prepare_target(
     return target, cleanup
 
 
+def _resolve_series(
+    addon_paths: list[Path],
+    *,
+    odoo_dir: Path | None,
+    venv_dir: Path | None,
+    venv_meta: dict[str, str] | None,
+) -> str:
+    """Collect every known Odoo series (flags + addon manifests) and fail on any disagreement."""
+    participants: list[tuple[str, str | None]] = []
+
+    if odoo_dir is not None:
+        version = get_odoo_version_from_release(odoo_dir)
+        if version is None:
+            raise OdooVersionUndeterminedError(odoo_dir)
+        participants.append((f"--odoo-dir {odoo_dir}", version))
+
+    if venv_dir is not None:
+        if venv_meta is None:
+            if odoo_dir is None:
+                raise VenvCreationRequiresOdooDirError(venv_dir)
+        else:
+            version = venv_meta.get("odoo_version") or None
+            participants.append((f"--venv-dir {venv_dir}", version))
+
+    for addon in addon_paths:
+        participants.append((str(addon), get_addon_series(addon)))
+
+    known = {s for _, s in participants if s is not None}
+
+    if len(known) > 1:
+        raise ConflictingOdooSeriesError(participants)
+
+    if not known:
+        raise OdooSeriesUndeterminedError
+
+    return known.pop()
+
+
 def run_ovx(
     addon_paths: list[Path],
     *,
@@ -173,9 +219,8 @@ def run_ovx(
     addon_paths = [p.expanduser().resolve() for p in addon_paths]
     extra_addons = addons_path or []
 
-    series = get_addon_series(addon_paths[0])
-    for p in addon_paths[1:]:
-        get_addon_series(p)
+    venv_meta = read_venv_meta(venv_dir) if venv_dir is not None and venv_dir.exists() else None
+    series = _resolve_series(addon_paths, odoo_dir=odoo_dir, venv_dir=venv_dir, venv_meta=venv_meta)
 
     resolved = resolve_base_venv(series, venv_dir=venv_dir, cwd=cwd, odoo_dir=odoo_dir)
 

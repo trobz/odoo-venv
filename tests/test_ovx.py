@@ -8,9 +8,15 @@ import pytest
 from typer.testing import CliRunner
 
 from odoo_venv.cli.ovx_cmd import app
-from odoo_venv.exceptions import OdooVenvError
+from odoo_venv.exceptions import (
+    ConflictingOdooSeriesError,
+    OdooSeriesUndeterminedError,
+    OdooVenvError,
+    VenvCreationRequiresOdooDirError,
+)
 from odoo_venv.ovx import (
     _resolve_addons_path,
+    _resolve_series,
     build_odoo_argv,
     make_ephemeral_db_name,
     run_ovx,
@@ -99,6 +105,105 @@ class TestResolveBaseVenv:
         # No 19.0 venv found, no odoo_dir → error
         with pytest.raises(OdooVenvError, match="--odoo-dir"):
             resolve_base_venv("19.0", venv_dir=None, cwd=tmp_path, odoo_dir=None)
+
+
+class TestResolveSeries:
+    """_resolve_series must fail fast the moment any two sources disagree."""
+
+    def _make_addon(self, tmp_path, name="my_addon", version="17.0.1.0.0"):
+        addon = tmp_path / name
+        addon.mkdir()
+        manifest: dict[str, object] = {"name": name}
+        if version is not None:
+            manifest["version"] = version
+        (addon / "__manifest__.py").write_text(repr(manifest))
+        return addon
+
+    @patch("odoo_venv.ovx.get_odoo_version_from_release", return_value="18.0")
+    def test_odoo_dir_conflicts_with_addon_manifest(self, mock_release, tmp_path):
+        addon = self._make_addon(tmp_path, version="17.0.1.0.0")
+        odoo_dir = tmp_path / "odoo"
+        odoo_dir.mkdir()
+
+        with pytest.raises(ConflictingOdooSeriesError) as exc:
+            _resolve_series([addon], odoo_dir=odoo_dir, venv_dir=None, venv_meta=None)
+        assert "18.0" in str(exc.value)
+        assert "17.0" in str(exc.value)
+
+    def test_venv_meta_conflicts_with_odoo_dir(self, tmp_path):
+        addon = self._make_addon(tmp_path, version="17.0.1.0.0")
+        venv_dir = tmp_path / ".venv"
+
+        with pytest.raises(ConflictingOdooSeriesError) as exc:
+            _resolve_series(
+                [addon],
+                odoo_dir=None,
+                venv_dir=venv_dir,
+                venv_meta={"odoo_version": "18.0"},
+            )
+        assert "18.0" in str(exc.value)
+        assert "17.0" in str(exc.value)
+
+    def test_two_addons_with_different_series_conflict(self, tmp_path):
+        addon_a = self._make_addon(tmp_path, name="addon_a", version="17.0.1.0.0")
+        addon_b = self._make_addon(tmp_path, name="addon_b", version="18.0.1.0.0")
+
+        with pytest.raises(ConflictingOdooSeriesError) as exc:
+            _resolve_series([addon_a, addon_b], odoo_dir=None, venv_dir=None, venv_meta=None)
+        assert str(addon_a) in str(exc.value)
+        assert str(addon_b) in str(exc.value)
+
+    def test_no_source_declares_a_series(self, tmp_path):
+        addon = self._make_addon(tmp_path, version=None)
+
+        with pytest.raises(OdooSeriesUndeterminedError):
+            _resolve_series([addon], odoo_dir=None, venv_dir=None, venv_meta=None)
+
+    def test_fresh_venv_dir_without_odoo_dir_requires_odoo_dir(self, tmp_path):
+        addon = self._make_addon(tmp_path, version="17.0.1.0.0")
+        venv_dir = tmp_path / ".venv"  # does not exist -> venv_meta is None upstream
+
+        with pytest.raises(VenvCreationRequiresOdooDirError):
+            _resolve_series([addon], odoo_dir=None, venv_dir=venv_dir, venv_meta=None)
+
+    def test_agreeing_sources_resolve_to_shared_series(self, tmp_path):
+        addon = self._make_addon(tmp_path, version="17.0.1.0.0")
+        venv_dir = _make_venv(tmp_path / ".venv", "17.0")
+
+        series = _resolve_series(
+            [addon],
+            odoo_dir=None,
+            venv_dir=venv_dir,
+            venv_meta={"odoo_version": "17.0"},
+        )
+        assert series == "17.0"
+
+
+class TestRunOvxSeriesConflict:
+    """End-to-end: run_ovx must fail fast on series disagreement before touching any venv."""
+
+    @patch("odoo_venv.ovx.create_and_register_venv")
+    @patch("odoo_venv.ovx.get_odoo_version_from_release", return_value="18.0")
+    def test_conflicting_series_aborts_before_venv_creation(self, mock_release, mock_create_venv, tmp_path):
+        addon = tmp_path / "my_addon"
+        addon.mkdir()
+        (addon / "__manifest__.py").write_text(repr({"name": "T", "version": "17.0.1.0.0"}))
+        odoo_dir = tmp_path / "odoo"
+        odoo_dir.mkdir()
+        venv_dir = tmp_path / "new_venv"
+
+        with pytest.raises(ConflictingOdooSeriesError):
+            run_ovx(
+                [addon],
+                venv_dir=venv_dir,
+                odoo_dir=odoo_dir,
+                database="testdb",
+                keep_clone=False,
+                no_launcher=True,
+                extra_args=[],
+            )
+        mock_create_venv.assert_not_called()
+        assert not venv_dir.exists()
 
 
 # ---------------------------------------------------------------------------

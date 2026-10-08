@@ -23,20 +23,25 @@ class ResolvedVenv:
     source: Literal["explicit", "discovered", "fresh"]
 
 
-def get_addon_series(addon_path: Path) -> str:
-    """Return the Odoo major series (e.g. '19.0') for the given addon directory."""
+def get_addon_series(addon_path: Path) -> str | None:
+    """Return the Odoo major series (e.g. '19.0') for the given addon directory, or None if undeclared."""
     if not addon_path.is_dir():
         raise OdooVenvError(f"Addon path is not a directory: {addon_path}")  # noqa: TRY003
     manifest_file = addon_path / "__manifest__.py"
     if not manifest_file.is_file():
         raise OdooVenvError(f"Missing __manifest__.py in {addon_path}")  # noqa: TRY003
-    series = get_odoo_version_from_manifest(manifest_file)
-    if not series:
+    return get_odoo_version_from_manifest(manifest_file)
+
+
+def read_venv_meta(venv_dir: Path) -> dict[str, str]:
+    """Read the recorded venv metadata from .odoo-venv.toml, raising an actionable error if absent."""
+    try:
+        _, meta, _, _ = read_venv_config(venv_dir)
+    except FileNotFoundError:
         raise OdooVenvError(  # noqa: TRY003
-            f"Could not determine Odoo series from {addon_path}/__manifest__.py "
-            f"(version must be in form 'X.Y.Z.A.B', e.g. '19.0.1.0.0')"
-        )
-    return series
+            f"No .odoo-venv.toml recorded at {venv_dir}; cannot determine its Odoo series."
+        ) from None
+    return meta
 
 
 def resolve_base_venv(
