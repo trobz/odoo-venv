@@ -1,4 +1,4 @@
-"""Unit tests for ovx: addon series detection, venv resolution, clone, argv, DB naming."""
+"""Unit tests for ovx: addon series detection, venv resolution, clone, dep check, argv, DB naming."""
 
 import re
 from pathlib import Path
@@ -10,6 +10,8 @@ from typer.testing import CliRunner
 from odoo_venv.cli.ovx_cmd import app
 from odoo_venv.exceptions import (
     ConflictingOdooSeriesError,
+    FreshVenvRequiresVenvDirError,
+    NonInteractiveVenvCreationError,
     OdooSeriesUndeterminedError,
     VenvCreationRequiresOdooDirError,
 )
@@ -22,12 +24,14 @@ from odoo_venv.ovx import (
     run_with_db_lifecycle,
     user_supplied_db,
 )
-from odoo_venv.ovx_resolver import ResolvedVenv, clone_venv, install_missing_python_deps, resolve_base_venv
+from odoo_venv.ovx_resolver import (
+    ResolvedVenv,
+    clone_venv,
+    install_python_deps,
+    missing_python_deps,
+    resolve_base_venv,
+)
 from odoo_venv.utils import write_venv_config
-
-# ---------------------------------------------------------------------------
-# Phase 1 — get_addon_series
-# ---------------------------------------------------------------------------
 
 
 class TestGetAddonSeries:
@@ -51,7 +55,7 @@ class TestGetAddonSeries:
 
 
 # ---------------------------------------------------------------------------
-# Phase 2 — resolve_base_venv
+# resolve_base_venv
 # ---------------------------------------------------------------------------
 
 
@@ -195,7 +199,7 @@ class TestRunOvxSeriesConflict:
 
 
 # ---------------------------------------------------------------------------
-# Phase 2 — clone_venv (filesystem-level; no real Python venv needed)
+# clone_venv (filesystem-level; no real Python venv needed)
 # ---------------------------------------------------------------------------
 
 
@@ -244,52 +248,41 @@ class TestCloneVenv:
 
 
 # ---------------------------------------------------------------------------
-# Phase 2 — install_missing_python_deps
+# missing_python_deps / install_python_deps
 # ---------------------------------------------------------------------------
 
 
-class TestInstallMissingPythonDeps:
-    @patch("odoo_venv.ovx_resolver.subprocess.run")
+class TestMissingPythonDeps:
     @patch("odoo_venv.ovx_resolver._freeze_venv", return_value={"requests": "2.31.0"})
-    def test_installs_missing(self, mock_freeze, mock_run, tmp_path):
-        mock_run.return_value = MagicMock(returncode=0)
-        manifest = {"external_dependencies": {"python": ["requests", "fakepkg"]}}
-        installed = install_missing_python_deps(tmp_path, manifest)
+    def test_reports_absent_package(self, mock_freeze, tmp_path):
+        missing = missing_python_deps(tmp_path, ["requests", "fakepkg"])
 
-        assert "fakepkg" in installed
-        assert "requests" not in installed
-        mock_run.assert_called_once()
-        cmd = mock_run.call_args[0][0]
-        assert "fakepkg" in cmd
+        assert missing == ["fakepkg"]
 
-    @patch("odoo_venv.ovx_resolver.subprocess.run")
     @patch("odoo_venv.ovx_resolver._freeze_venv", return_value={"requests": "2.31.0", "fakepkg": "1.0"})
-    def test_skips_already_installed(self, mock_freeze, mock_run, tmp_path):
-        manifest = {"external_dependencies": {"python": ["requests", "fakepkg"]}}
-        installed = install_missing_python_deps(tmp_path, manifest)
+    def test_reports_nothing_when_all_present(self, mock_freeze, tmp_path):
+        missing = missing_python_deps(tmp_path, ["requests", "fakepkg"])
 
-        assert installed == []
-        mock_run.assert_not_called()
+        assert missing == []
 
+    @patch("odoo_venv.ovx_resolver._freeze_venv")
+    def test_empty_deps_skips_freeze(self, mock_freeze, tmp_path):
+        missing = missing_python_deps(tmp_path, [])
+
+        assert missing == []
+        mock_freeze.assert_not_called()
+
+
+class TestInstallPythonDeps:
     @patch("odoo_venv.ovx_resolver.subprocess.run")
-    @patch("odoo_venv.ovx_resolver._freeze_venv", return_value={})
-    def test_no_python_deps(self, mock_freeze, mock_run, tmp_path):
-        manifest = {"external_dependencies": {}}
-        installed = install_missing_python_deps(tmp_path, manifest)
+    def test_no_packages_skips_subprocess(self, mock_run, tmp_path):
+        install_python_deps(tmp_path, [])
 
-        assert installed == []
-        mock_run.assert_not_called()
-
-    @patch("odoo_venv.ovx_resolver.subprocess.run")
-    @patch("odoo_venv.ovx_resolver._freeze_venv", return_value={})
-    def test_no_external_dependencies_key(self, mock_freeze, mock_run, tmp_path):
-        installed = install_missing_python_deps(tmp_path, {})
-        assert installed == []
         mock_run.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
-# Phase 3 — build_odoo_argv
+# build_odoo_argv
 # ---------------------------------------------------------------------------
 
 
@@ -343,7 +336,7 @@ class TestBuildOdooArgv:
 
 
 # ---------------------------------------------------------------------------
-# Phase 4 — make_ephemeral_db_name
+# make_ephemeral_db_name
 # ---------------------------------------------------------------------------
 
 
@@ -372,7 +365,7 @@ class TestMakeEphemeralDbName:
 
 
 # ---------------------------------------------------------------------------
-# Phase 4 — run_with_db_lifecycle
+# run_with_db_lifecycle
 # ---------------------------------------------------------------------------
 
 
@@ -426,7 +419,7 @@ class TestRunWithDbLifecycle:
 
 
 # ---------------------------------------------------------------------------
-# Phase 5 — _resolve_addons_path with extra paths
+# _resolve_addons_path with extra paths
 # ---------------------------------------------------------------------------
 
 
@@ -534,7 +527,7 @@ class TestResolveAddonsPath:
 
 
 # ---------------------------------------------------------------------------
-# Phase 5 — run_ovx with addons_path forwarding
+# run_ovx with addons_path forwarding
 # ---------------------------------------------------------------------------
 
 
@@ -542,7 +535,7 @@ class TestRunOvxAddonsPath:
     @patch("odoo_venv.ovx._resolve_addons_path")
     @patch("odoo_venv.ovx.run_with_db_lifecycle", return_value=0)
     @patch("odoo_venv.ovx.create_launcher")
-    @patch("odoo_venv.ovx.install_missing_python_deps", return_value=[])
+    @patch("odoo_venv.ovx.missing_python_deps", return_value=[])
     @patch("odoo_venv.ovx.clone_venv")
     @patch("odoo_venv.ovx.resolve_base_venv")
     @patch("odoo_venv.ovx.get_addon_series", return_value="17.0")
@@ -587,6 +580,7 @@ class TestRunOvxAddonsPath:
         addons_path_val = called_argv[called_argv.index("--addons-path") + 1]
         assert "/extra/path" in addons_path_val
 
+    @patch("odoo_venv.ovx._confirm_venv_creation", return_value=True)
     @patch("odoo_venv.ovx.create_and_register_venv")
     @patch("odoo_venv.ovx.resolve_common_preset", return_value=None)
     @patch("odoo_venv.ovx.run_with_db_lifecycle", return_value=0)
@@ -603,6 +597,7 @@ class TestRunOvxAddonsPath:
         mock_run,
         mock_preset,
         mock_create_venv,
+        mock_confirm,
         tmp_path,
     ):
         odoo_dir = tmp_path / "odoo"
@@ -611,11 +606,10 @@ class TestRunOvxAddonsPath:
         addon.mkdir()
         (addon / "__manifest__.py").write_text('{"name": "T", "version": "17.0.1.0.0"}')
 
-        fresh_venv = tmp_path / "fresh_venv" / "odoo-17.0-venv"
+        fresh_venv = tmp_path / "fresh_venv"
 
         def fake_create_venv(**kwargs):
-            fresh_venv.mkdir(parents=True, exist_ok=True)
-            (fresh_venv / "bin").mkdir(exist_ok=True)
+            (fresh_venv / "bin").mkdir(parents=True, exist_ok=True)
             (fresh_venv / "bin" / "python").write_text("#!/bin/python")
             return fresh_venv
 
@@ -625,7 +619,7 @@ class TestRunOvxAddonsPath:
 
         run_ovx(
             [addon],
-            venv_dir=None,
+            venv_dir=fresh_venv,
             odoo_dir=odoo_dir,
             database="testdb",
             keep_clone=True,
@@ -640,7 +634,7 @@ class TestRunOvxAddonsPath:
 
     @patch("odoo_venv.ovx.run_with_db_lifecycle", return_value=0)
     @patch("odoo_venv.ovx.create_launcher")
-    @patch("odoo_venv.ovx.install_missing_python_deps", return_value=[])
+    @patch("odoo_venv.ovx.missing_python_deps", return_value=[])
     @patch("odoo_venv.ovx.clone_venv")
     @patch("odoo_venv.ovx.resolve_base_venv")
     @patch("odoo_venv.ovx.get_addon_series", return_value="17.0")
@@ -685,13 +679,433 @@ class TestRunOvxAddonsPath:
         )
 
         mock_missing.assert_called_once()
-        called_manifest = mock_missing.call_args[0][1]
-        deps = called_manifest["external_dependencies"]["python"]
-        assert deps == ["requests", "lxml", "Pillow"]
+        assert mock_missing.call_args[0][1] == ["requests", "lxml", "Pillow"]
+
+
+class TestRunOvxFastPath:
+    def _make_venv(self, tmp_path, name="venv"):
+        venv = tmp_path / name
+        venv.mkdir()
+        (venv / "bin").mkdir()
+        (venv / "bin" / "python").write_text("#!/bin/python")
+        write_venv_config(venv, {}, odoo_version="17.0")
+        return venv
+
+    def _make_addon(self, tmp_path, deps=None):
+        addon = tmp_path / "my_addon"
+        addon.mkdir()
+        manifest: dict[str, object] = {"name": "T", "version": "17.0.1.0.0"}
+        if deps:
+            manifest["external_dependencies"] = {"python": deps}
+        (addon / "__manifest__.py").write_text(repr(manifest))
+        return addon
+
+    @patch("odoo_venv.ovx._resolve_addons_path", return_value=[])
+    @patch("odoo_venv.ovx.run_with_db_lifecycle", return_value=0)
+    @patch("odoo_venv.ovx.create_launcher")
+    @patch("odoo_venv.ovx.missing_python_deps", return_value=[])
+    @patch("odoo_venv.ovx.install_python_deps")
+    @patch("odoo_venv.ovx.clone_venv")
+    @patch("odoo_venv.ovx.resolve_base_venv")
+    @patch("odoo_venv.ovx.get_addon_series", return_value="17.0")
+    def test_no_clone_when_nothing_missing(
+        self,
+        mock_series,
+        mock_resolve,
+        mock_clone,
+        mock_install,
+        mock_missing,
+        mock_launcher,
+        mock_run,
+        mock_addons_path,
+        tmp_path,
+    ):
+        venv = self._make_venv(tmp_path)
+        addon = self._make_addon(tmp_path)
+        mock_resolve.return_value = ResolvedVenv(path=venv, fresh=False, source="explicit")
+
+        run_ovx(
+            [addon],
+            venv_dir=venv,
+            odoo_dir=None,
+            database="testdb",
+            keep_clone=False,
+            no_launcher=True,
+            extra_args=[],
+        )
+
+        mock_clone.assert_not_called()
+        mock_install.assert_not_called()
+        called_argv = mock_run.call_args[0][0]
+        assert called_argv[0] == str(venv / "bin" / "python")
+
+    @patch("odoo_venv.ovx._resolve_addons_path", return_value=[])
+    @patch("odoo_venv.ovx.run_with_db_lifecycle", return_value=0)
+    @patch("odoo_venv.ovx.create_launcher")
+    @patch("odoo_venv.ovx.missing_python_deps", return_value=["fakepkg"])
+    @patch("odoo_venv.ovx.install_python_deps")
+    @patch("odoo_venv.ovx.clone_venv")
+    @patch("odoo_venv.ovx.resolve_base_venv")
+    @patch("odoo_venv.ovx.get_addon_series", return_value="17.0")
+    def test_clones_when_dep_missing(
+        self,
+        mock_series,
+        mock_resolve,
+        mock_clone,
+        mock_install,
+        mock_missing,
+        mock_launcher,
+        mock_run,
+        mock_addons_path,
+        tmp_path,
+    ):
+        venv = self._make_venv(tmp_path)
+        clone_dir = self._make_venv(tmp_path, name="clone")
+        addon = self._make_addon(tmp_path, deps=["fakepkg"])
+        mock_resolve.return_value = ResolvedVenv(path=venv, fresh=False, source="explicit")
+        mock_clone.return_value = (clone_dir, lambda: None)
+
+        run_ovx(
+            [addon],
+            venv_dir=venv,
+            odoo_dir=None,
+            database="testdb",
+            keep_clone=False,
+            no_launcher=True,
+            extra_args=[],
+        )
+
+        mock_clone.assert_called_once_with(venv)
+        mock_install.assert_called_once_with(clone_dir, ["fakepkg"])
+        called_argv = mock_run.call_args[0][0]
+        assert called_argv[0] == str(clone_dir / "bin" / "python")
+
+    @patch("odoo_venv.ovx._resolve_addons_path", return_value=[])
+    @patch("odoo_venv.ovx.run_with_db_lifecycle", return_value=0)
+    @patch("odoo_venv.ovx.create_launcher")
+    @patch("odoo_venv.ovx_resolver._freeze_venv")
+    @patch("odoo_venv.ovx.clone_venv")
+    @patch("odoo_venv.ovx.resolve_base_venv")
+    @patch("odoo_venv.ovx.get_addon_series", return_value="17.0")
+    def test_no_declared_deps_never_freezes(
+        self,
+        mock_series,
+        mock_resolve,
+        mock_clone,
+        mock_freeze,
+        mock_launcher,
+        mock_run,
+        mock_addons_path,
+        tmp_path,
+    ):
+        venv = self._make_venv(tmp_path)
+        addon = self._make_addon(tmp_path)
+        mock_resolve.return_value = ResolvedVenv(path=venv, fresh=False, source="explicit")
+
+        run_ovx(
+            [addon],
+            venv_dir=venv,
+            odoo_dir=None,
+            database="testdb",
+            keep_clone=False,
+            no_launcher=True,
+            extra_args=[],
+        )
+
+        mock_freeze.assert_not_called()
+        mock_clone.assert_not_called()
+
+    @patch("odoo_venv.ovx._resolve_addons_path", return_value=[])
+    @patch("odoo_venv.ovx.run_with_db_lifecycle", return_value=0)
+    @patch("odoo_venv.ovx.create_launcher")
+    @patch("odoo_venv.ovx.missing_python_deps", return_value=[])
+    @patch("odoo_venv.ovx.clone_venv")
+    @patch("odoo_venv.ovx.resolve_base_venv")
+    @patch("odoo_venv.ovx.get_addon_series", return_value="17.0")
+    def test_keep_clone_prints_nothing_on_fast_path(
+        self,
+        mock_series,
+        mock_resolve,
+        mock_clone,
+        mock_missing,
+        mock_launcher,
+        mock_run,
+        mock_addons_path,
+        tmp_path,
+        capsys,
+    ):
+        venv = self._make_venv(tmp_path)
+        addon = self._make_addon(tmp_path)
+        mock_resolve.return_value = ResolvedVenv(path=venv, fresh=False, source="explicit")
+
+        run_ovx(
+            [addon],
+            venv_dir=venv,
+            odoo_dir=None,
+            database="testdb",
+            keep_clone=True,
+            no_launcher=True,
+            extra_args=[],
+        )
+
+        captured = capsys.readouterr()
+        assert "Clone kept at:" not in captured.out
+
+
+class TestRunOvxFreshVenv:
+    """No venv yet: ovx must ask, create a permanent venv, and keep addon deps out of it."""
+
+    def _make_addon(self, tmp_path, deps=None):
+        addon = tmp_path / "my_addon"
+        addon.mkdir()
+        manifest: dict[str, object] = {"name": "T", "version": "17.0.1.0.0"}
+        if deps:
+            manifest["external_dependencies"] = {"python": deps}
+        (addon / "__manifest__.py").write_text(repr(manifest))
+        return addon
+
+    def _fake_creator(self, venv_dir):
+        def fake_create_venv(**kwargs):
+            (venv_dir / "bin").mkdir(parents=True, exist_ok=True)
+            (venv_dir / "bin" / "python").write_text("#!/bin/python")
+            return venv_dir
+
+        return fake_create_venv
+
+    @patch("odoo_venv.ovx.get_odoo_version_from_release", return_value="17.0")
+    def test_requires_venv_dir(self, mock_release, tmp_path):
+        addon = self._make_addon(tmp_path)
+        odoo_dir = tmp_path / "odoo"
+        odoo_dir.mkdir()
+
+        with pytest.raises(FreshVenvRequiresVenvDirError):
+            run_ovx(
+                [addon],
+                venv_dir=None,
+                odoo_dir=odoo_dir,
+                database="testdb",
+                keep_clone=False,
+                no_launcher=True,
+                extra_args=[],
+            )
+
+    @patch("sys.stdin.isatty", return_value=False)
+    @patch("odoo_venv.ovx.create_and_register_venv")
+    @patch("odoo_venv.ovx.get_odoo_version_from_release", return_value="17.0")
+    def test_refuses_without_tty(self, mock_release, mock_create_venv, mock_isatty, tmp_path):
+        addon = self._make_addon(tmp_path)
+        odoo_dir = tmp_path / "odoo"
+        odoo_dir.mkdir()
+
+        with pytest.raises(NonInteractiveVenvCreationError):
+            run_ovx(
+                [addon],
+                venv_dir=tmp_path / "new_venv",
+                odoo_dir=odoo_dir,
+                database="testdb",
+                keep_clone=False,
+                no_launcher=True,
+                extra_args=[],
+            )
+        mock_create_venv.assert_not_called()
+
+    @patch("odoo_venv.ovx.typer.confirm", return_value=False)
+    @patch("sys.stdin.isatty", return_value=True)
+    @patch("odoo_venv.ovx.create_and_register_venv")
+    @patch("odoo_venv.ovx.run_with_db_lifecycle", return_value=0)
+    @patch("odoo_venv.ovx.get_odoo_version_from_release", return_value="17.0")
+    def test_decline_creates_nothing(
+        self, mock_release, mock_run, mock_create_venv, mock_isatty, mock_confirm, tmp_path
+    ):
+        addon = self._make_addon(tmp_path)
+        odoo_dir = tmp_path / "odoo"
+        odoo_dir.mkdir()
+        venv_dir = tmp_path / "new_venv"
+
+        rc = run_ovx(
+            [addon],
+            venv_dir=venv_dir,
+            odoo_dir=odoo_dir,
+            database="testdb",
+            keep_clone=False,
+            no_launcher=True,
+            extra_args=[],
+        )
+
+        assert rc == 1
+        mock_create_venv.assert_not_called()
+        mock_run.assert_not_called()
+        assert not venv_dir.exists()
+
+    @patch("odoo_venv.ovx.tempfile.TemporaryDirectory")
+    @patch("odoo_venv.ovx._resolve_addons_path", return_value=[])
+    @patch("odoo_venv.ovx.resolve_common_preset", return_value=None)
+    @patch("odoo_venv.ovx.typer.confirm", return_value=True)
+    @patch("sys.stdin.isatty", return_value=True)
+    @patch("odoo_venv.ovx.create_and_register_venv")
+    @patch("odoo_venv.ovx.run_with_db_lifecycle", return_value=0)
+    @patch("odoo_venv.ovx.get_odoo_version_from_release", return_value="17.0")
+    def test_base_venv_is_permanent_and_skips_addon_manifest_deps(
+        self,
+        mock_release,
+        mock_run,
+        mock_create_venv,
+        mock_isatty,
+        mock_confirm,
+        mock_preset,
+        mock_addons_path,
+        mock_tempdir,
+        tmp_path,
+    ):
+        addon = self._make_addon(tmp_path)
+        odoo_dir = tmp_path / "odoo"
+        odoo_dir.mkdir()
+        venv_dir = tmp_path / "new_venv"
+        mock_create_venv.side_effect = self._fake_creator(venv_dir)
+
+        run_ovx(
+            [addon],
+            venv_dir=venv_dir,
+            odoo_dir=odoo_dir,
+            database="testdb",
+            keep_clone=False,
+            no_launcher=True,
+            extra_args=[],
+        )
+
+        kwargs = mock_create_venv.call_args[1]
+        assert kwargs["install_addons_manifests_requirements"] is False
+        assert kwargs["config_args"]["install_addons_manifests_requirements"] is False
+        assert kwargs["venv_dir"] == str(venv_dir)
+        # Permanent: created where the user asked, still on disk after the run, and no
+        # throwaway TemporaryDirectory was ever allocated for it.
+        assert venv_dir.is_dir()
+        mock_tempdir.assert_not_called()
+        # Odoo ran from the base venv itself, no clone needed for a dep-free addon.
+        assert mock_run.call_args[0][0][0] == str(venv_dir / "bin" / "python")
+
+    @patch("odoo_venv.ovx.install_python_deps")
+    @patch("odoo_venv.ovx.clone_venv")
+    @patch("odoo_venv.ovx.missing_python_deps", return_value=["fakepkg"])
+    @patch("odoo_venv.ovx._resolve_addons_path", return_value=[])
+    @patch("odoo_venv.ovx.resolve_common_preset", return_value=None)
+    @patch("odoo_venv.ovx.typer.confirm", return_value=True)
+    @patch("sys.stdin.isatty", return_value=True)
+    @patch("odoo_venv.ovx.create_and_register_venv")
+    @patch("odoo_venv.ovx.run_with_db_lifecycle", return_value=0)
+    @patch("odoo_venv.ovx.get_odoo_version_from_release", return_value="17.0")
+    def test_addon_deps_land_in_clone_not_base(
+        self,
+        mock_release,
+        mock_run,
+        mock_create_venv,
+        mock_isatty,
+        mock_confirm,
+        mock_preset,
+        mock_addons_path,
+        mock_missing,
+        mock_clone,
+        mock_install,
+        tmp_path,
+    ):
+        addon = self._make_addon(tmp_path, deps=["fakepkg"])
+        odoo_dir = tmp_path / "odoo"
+        odoo_dir.mkdir()
+        venv_dir = tmp_path / "new_venv"
+        mock_create_venv.side_effect = self._fake_creator(venv_dir)
+
+        clone_dir = tmp_path / "clone"
+        (clone_dir / "bin").mkdir(parents=True)
+        (clone_dir / "bin" / "python").write_text("#!/bin/python")
+        mock_clone.return_value = (clone_dir, lambda: None)
+
+        run_ovx(
+            [addon],
+            venv_dir=venv_dir,
+            odoo_dir=odoo_dir,
+            database="testdb",
+            keep_clone=False,
+            no_launcher=True,
+            extra_args=[],
+        )
+
+        # The freshly created base is checked for deps, then cloned; the install hits the clone.
+        assert mock_missing.call_args[0][0] == venv_dir
+        mock_clone.assert_called_once_with(venv_dir)
+        mock_install.assert_called_once_with(clone_dir, ["fakepkg"])
+        assert mock_run.call_args[0][0][0] == str(clone_dir / "bin" / "python")
+
+    @patch("odoo_venv.ovx.resolve_common_preset", return_value=None)
+    @patch("odoo_venv.ovx.typer.confirm", return_value=True)
+    @patch("sys.stdin.isatty", return_value=True)
+    @patch("odoo_venv.ovx.create_and_register_venv")
+    @patch("odoo_venv.ovx.get_odoo_version_from_release", return_value="17.0")
+    def test_failed_creation_removes_partial_venv(
+        self, mock_release, mock_create_venv, mock_isatty, mock_confirm, mock_preset, tmp_path
+    ):
+        addon = self._make_addon(tmp_path)
+        odoo_dir = tmp_path / "odoo"
+        odoo_dir.mkdir()
+        venv_dir = tmp_path / "new_venv"
+
+        def half_build(**kwargs):
+            (venv_dir / "bin").mkdir(parents=True)
+            raise RuntimeError
+
+        mock_create_venv.side_effect = half_build
+
+        with pytest.raises(RuntimeError):
+            run_ovx(
+                [addon],
+                venv_dir=venv_dir,
+                odoo_dir=odoo_dir,
+                database="testdb",
+                keep_clone=False,
+                no_launcher=True,
+                extra_args=[],
+            )
+
+        # No rubble: the next run must be able to offer creation again instead of
+        # failing on a venv with no .odoo-venv.toml.
+        assert not venv_dir.exists()
+
+    @patch("odoo_venv.ovx.resolve_common_preset", return_value=None)
+    @patch("odoo_venv.ovx.typer.confirm", return_value=True)
+    @patch("sys.stdin.isatty", return_value=True)
+    @patch("odoo_venv.ovx.create_and_register_venv")
+    @patch("odoo_venv.ovx.get_odoo_version_from_release", return_value="17.0")
+    def test_failed_run_keeps_registered_venv(
+        self, mock_release, mock_create_venv, mock_isatty, mock_confirm, mock_preset, tmp_path
+    ):
+        addon = self._make_addon(tmp_path)
+        odoo_dir = tmp_path / "odoo"
+        odoo_dir.mkdir()
+        venv_dir = tmp_path / "new_venv"
+
+        def build_then_fail(**kwargs):
+            (venv_dir / "bin").mkdir(parents=True)
+            write_venv_config(venv_dir, {}, odoo_version="17.0")
+            raise RuntimeError
+
+        mock_create_venv.side_effect = build_then_fail
+
+        with pytest.raises(RuntimeError):
+            run_ovx(
+                [addon],
+                venv_dir=venv_dir,
+                odoo_dir=odoo_dir,
+                database="testdb",
+                keep_clone=False,
+                no_launcher=True,
+                extra_args=[],
+            )
+
+        # A venv that got far enough to register itself is usable; do not destroy it.
+        assert venv_dir.is_dir()
 
 
 # ---------------------------------------------------------------------------
-# Phase 5 — CLI flag parsing in ovx_cmd
+# CLI flag parsing in ovx_cmd
 # ---------------------------------------------------------------------------
 
 

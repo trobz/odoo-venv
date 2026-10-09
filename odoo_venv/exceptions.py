@@ -27,6 +27,22 @@ class VenvConfigNotFoundError(OdooVenvError):
         super().__init__(f"No .odoo-venv.toml recorded at {venv_dir}; cannot determine its Odoo series.")
 
 
+class FreshVenvRequiresVenvDirError(OdooVenvError):
+    def __init__(self) -> None:
+        super().__init__(
+            "no venv exists yet; pass --venv-dir to choose where to create it "
+            "(e.g. ovx ./my_addon --odoo-dir ~/src/odoo/18.0 --venv-dir ~/code/venvs/18.0)"
+        )
+
+
+class NonInteractiveVenvCreationError(OdooVenvError):
+    def __init__(self, venv_dir: Path) -> None:
+        super().__init__(
+            f"refusing to create a venv at {venv_dir} without confirmation: no interactive terminal. "
+            f"Create it first with: odoo-venv create --venv-dir {venv_dir} --odoo-dir <odoo source>"
+        )
+
+
 class ResolvedVenvPathMissingError(OdooVenvError):
     def __init__(self) -> None:
         super().__init__("Internal error: resolved venv path is None")

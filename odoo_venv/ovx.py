@@ -1,11 +1,11 @@
 """Orchestrator and DB lifecycle for the ovx command."""
 
-import ast
 import contextlib
 import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import uuid
 from collections.abc import Callable
@@ -16,6 +16,8 @@ from odoo_addons_path import get_addons_path, get_odoo_version_from_release
 
 from odoo_venv.exceptions import (
     ConflictingOdooSeriesError,
+    FreshVenvRequiresVenvDirError,
+    NonInteractiveVenvCreationError,
     OdooSeriesUndeterminedError,
     OdooVersionUndeterminedError,
     ResolvedVenvPathMissingError,
@@ -24,14 +26,15 @@ from odoo_venv.exceptions import (
 from odoo_venv.launcher import create_launcher
 from odoo_venv.main import create_and_register_venv, resolve_common_preset
 from odoo_venv.ovx_resolver import (
-    ResolvedVenv,
     clone_venv,
+    collect_ext_deps,
     get_addon_series,
-    install_missing_python_deps,
+    install_python_deps,
+    missing_python_deps,
     read_venv_meta,
     resolve_base_venv,
 )
-from odoo_venv.utils import read_venv_config, split_escaped
+from odoo_venv.utils import VENV_CONFIG_FILENAME, read_venv_config, split_escaped
 
 
 def user_supplied_db(extra_args: list[str]) -> bool:
@@ -119,97 +122,122 @@ def run_with_db_lifecycle(odoo_cmd: list[str], db_name: str | None) -> int:
     return rc
 
 
-def _prepare_target(
-    resolved: ResolvedVenv,
+def _confirm_venv_creation(venv_dir: Path, series: str) -> bool:
+    """Ask the user whether to create a base venv at *venv_dir*.
+
+    Refuses outright when there is no interactive terminal: building an Odoo venv is a
+    multi-minute, multi-gigabyte operation that must never happen unattended by accident.
+    """
+    if not sys.stdin.isatty():
+        raise NonInteractiveVenvCreationError(venv_dir)
+    return typer.confirm(f"No venv at {venv_dir}. Create an Odoo {series} venv there?", default=True)
+
+
+def _create_base_venv(
+    venv_dir: Path,
     addon_paths: list[Path],
     series: str,
-    odoo_dir: Path | None,
-    keep_clone: bool,
+    odoo_dir: Path,
     extra_addons_paths: list[str] | None = None,
-) -> tuple[Path, "Callable[[], None] | None"]:
-    """Create or clone the working venv. Returns (target_path, cleanup_fn)."""
-    if resolved.fresh:
-        # _resolve_series already raised VenvCreationRequiresOdooDirError above if odoo_dir
-        # were None here, so this holds by construction.
-        assert odoo_dir is not None  # noqa: S101
-        if keep_clone:
-            clone_dir = Path(tempfile.mkdtemp(prefix="ovx_fresh_"))
-            cleanup = None
-        else:
-            td = tempfile.TemporaryDirectory(prefix="ovx_fresh_")
-            clone_dir = Path(td.name)
-            cleanup = td.cleanup
+) -> Path:
+    """Create a permanent base venv at *venv_dir*, equivalent to `odoo-venv create`.
 
-        target = clone_dir / f"odoo-{series}-venv"
-        typer.secho(f"Creating fresh venv at {target}...", fg=typer.colors.CYAN)
-        all_parents = list(dict.fromkeys([*(extra_addons_paths or []), *[str(p.parent) for p in addon_paths]]))
+    Addon manifest dependencies are deliberately NOT installed: the base venv stays a clean
+    Odoo-only environment, and each run's extra packages land in a throwaway clone instead.
+    """
+    typer.secho(f"Creating venv at {venv_dir}...", fg=typer.colors.CYAN)
+    all_parents = list(dict.fromkeys([*(extra_addons_paths or []), *[str(p.parent) for p in addon_paths]]))
 
-        preset = resolve_common_preset()
-        install_odoo = preset.install_odoo if preset and preset.install_odoo is not None else True
-        install_odoo_requirements = (
-            preset.install_odoo_requirements if preset and preset.install_odoo_requirements is not None else True
-        )
-        ignore_from_odoo_requirements = preset.ignore_from_odoo_requirements if preset else None
-        install_addons_dirs_requirements = bool(preset and preset.install_addons_dirs_requirements)
-        ignore_from_addons_dirs_requirements = preset.ignore_from_addons_dirs_requirements if preset else None
-        ignore_from_addons_manifests_requirements = preset.ignore_from_addons_manifests_requirements if preset else None
-        extra_requirements_file = preset.extra_requirements_file if preset else None
-        extra_requirement = preset.extra_requirement if preset else None
-        extra_commands = preset.extra_commands if preset else None
-        extra_requirements_list = split_escaped(extra_requirement) if extra_requirement else None
+    preset = resolve_common_preset()
+    install_odoo = preset.install_odoo if preset and preset.install_odoo is not None else True
+    install_odoo_requirements = (
+        preset.install_odoo_requirements if preset and preset.install_odoo_requirements is not None else True
+    )
+    ignore_from_odoo_requirements = preset.ignore_from_odoo_requirements if preset else None
+    install_addons_dirs_requirements = bool(preset and preset.install_addons_dirs_requirements)
+    ignore_from_addons_dirs_requirements = preset.ignore_from_addons_dirs_requirements if preset else None
+    ignore_from_addons_manifests_requirements = preset.ignore_from_addons_manifests_requirements if preset else None
+    extra_requirements_file = preset.extra_requirements_file if preset else None
+    extra_requirement = preset.extra_requirement if preset else None
+    extra_commands = preset.extra_commands if preset else None
+    extra_requirements_list = split_escaped(extra_requirement) if extra_requirement else None
 
-        config_args: dict[str, str | bool] = {
-            "preset": "common" if preset else "",
-            "python_version": "",
-            "odoo_dir": str(odoo_dir),
-            "venv_dir": str(target),
-            "addons_path": ",".join(all_parents),
-            "install_odoo": install_odoo,
-            "install_odoo_requirements": install_odoo_requirements,
-            "ignore_from_odoo_requirements": ignore_from_odoo_requirements or "",
-            "install_addons_dirs_requirements": install_addons_dirs_requirements,
-            "ignore_from_addons_dirs_requirements": ignore_from_addons_dirs_requirements or "",
-            "install_addons_manifests_requirements": True,
-            "ignore_from_addons_manifests_requirements": ignore_from_addons_manifests_requirements or "",
-            "extra_requirements_file": extra_requirements_file or "",
-            "extra_requirement": extra_requirement or "",
-            "skip_on_failure": False,
-            "create_launcher": False,
-            "project_dir": "",
-        }
+    config_args: dict[str, str | bool] = {
+        "preset": "common" if preset else "",
+        "python_version": "",
+        "odoo_dir": str(odoo_dir),
+        "venv_dir": str(venv_dir),
+        "addons_path": ",".join(all_parents),
+        "install_odoo": install_odoo,
+        "install_odoo_requirements": install_odoo_requirements,
+        "ignore_from_odoo_requirements": ignore_from_odoo_requirements or "",
+        "install_addons_dirs_requirements": install_addons_dirs_requirements,
+        "ignore_from_addons_dirs_requirements": ignore_from_addons_dirs_requirements or "",
+        "install_addons_manifests_requirements": False,
+        "ignore_from_addons_manifests_requirements": ignore_from_addons_manifests_requirements or "",
+        "extra_requirements_file": extra_requirements_file or "",
+        "extra_requirement": extra_requirement or "",
+        "skip_on_failure": False,
+        "create_launcher": False,
+        "project_dir": "",
+    }
 
-        create_and_register_venv(
-            odoo_version=series,
-            odoo_dir=str(odoo_dir),
-            venv_dir=str(target),
-            config_args=config_args,
-            python_version=None,
-            install_odoo=install_odoo,
-            install_odoo_requirements=install_odoo_requirements,
-            ignore_from_odoo_requirements=ignore_from_odoo_requirements,
-            addons_paths=all_parents,
-            install_addons_dirs_requirements=install_addons_dirs_requirements,
-            ignore_from_addons_dirs_requirements=ignore_from_addons_dirs_requirements,
-            install_addons_manifests_requirements=True,
-            ignore_from_addons_manifests_requirements=ignore_from_addons_manifests_requirements,
-            extra_requirements_file=extra_requirements_file,
-            extra_requirements=extra_requirements_list,
-            extra_commands=extra_commands,
-            create_launcher_flag=False,
-        )
-        return target, cleanup
+    create_and_register_venv(
+        odoo_version=series,
+        odoo_dir=str(odoo_dir),
+        venv_dir=str(venv_dir),
+        config_args=config_args,
+        python_version=None,
+        install_odoo=install_odoo,
+        install_odoo_requirements=install_odoo_requirements,
+        ignore_from_odoo_requirements=ignore_from_odoo_requirements,
+        addons_paths=all_parents,
+        install_addons_dirs_requirements=install_addons_dirs_requirements,
+        ignore_from_addons_dirs_requirements=ignore_from_addons_dirs_requirements,
+        install_addons_manifests_requirements=False,
+        ignore_from_addons_manifests_requirements=ignore_from_addons_manifests_requirements,
+        extra_requirements_file=extra_requirements_file,
+        extra_requirements=extra_requirements_list,
+        extra_commands=extra_commands,
+        create_launcher_flag=False,
+    )
+    return venv_dir
 
-    if resolved.path is None:
-        raise ResolvedVenvPathMissingError
+
+def _create_base_venv_atomically(
+    venv_dir: Path,
+    addon_paths: list[Path],
+    series: str,
+    odoo_dir: Path,
+    extra_addons_paths: list[str] | None = None,
+) -> Path:
+    """Create the base venv, removing a partial build if creation fails.
+
+    Without this, an interrupted or failed build leaves a venv directory with no
+    `.odoo-venv.toml`, and every later run dies on `VenvConfigNotFoundError` instead of
+    simply offering to create the venv again.
+    """
+    try:
+        return _create_base_venv(venv_dir, addon_paths, series, odoo_dir, extra_addons_paths)
+    except BaseException:
+        if venv_dir.exists() and not (venv_dir / VENV_CONFIG_FILENAME).is_file():
+            typer.secho(f"Creation failed; removing partial venv at {venv_dir}", fg=typer.colors.YELLOW)
+            shutil.rmtree(venv_dir, ignore_errors=True)
+        raise
+
+
+def _prepare_target(base: Path, keep_clone: bool, *, needs_clone: bool) -> tuple[Path, "Callable[[], None] | None"]:
+    """Return the venv to run Odoo from: the base itself, or a clone when deps are missing."""
+    if not needs_clone:
+        return base, None
 
     if keep_clone:
         clone_dir = Path(tempfile.mkdtemp(prefix="ovx_clone_"))
-        target = clone_dir / resolved.path.name
-        shutil.copytree(resolved.path, target, symlinks=True)
+        target = clone_dir / base.name
+        shutil.copytree(base, target, symlinks=True)
         return target, None
 
-    target, cleanup = clone_venv(resolved.path)
-    return target, cleanup
+    return clone_venv(base)
 
 
 def _resolve_series(
@@ -270,21 +298,27 @@ def run_ovx(
 
     resolved = resolve_base_venv(venv_dir=venv_dir, odoo_dir=odoo_dir)
 
-    target, cleanup = _prepare_target(resolved, addon_paths, series, odoo_dir, keep_clone, extra_addons)
+    if resolved.fresh:
+        if venv_dir is None:
+            raise FreshVenvRequiresVenvDirError
+        if not _confirm_venv_creation(venv_dir, series):
+            typer.secho("Aborted: no venv created.", fg=typer.colors.YELLOW)
+            return 1
+        # _resolve_series already raised VenvCreationRequiresOdooDirError above if odoo_dir
+        # were None here, so this holds by construction.
+        assert odoo_dir is not None  # noqa: S101
+        base = _create_base_venv_atomically(venv_dir, addon_paths, series, odoo_dir, extra_addons)
+    else:
+        if resolved.path is None:
+            raise ResolvedVenvPathMissingError
+        base = resolved.path
+
+    missing = missing_python_deps(base, collect_ext_deps(addon_paths))
+    target, cleanup = _prepare_target(base, keep_clone, needs_clone=bool(missing))
     try:
-        if not resolved.fresh:
-            all_python_deps: list[str] = []
-            seen: set[str] = set()
-            for p in addon_paths:
-                manifest = ast.literal_eval((p / "__manifest__.py").read_text())
-                for dep in manifest.get("external_dependencies", {}).get("python", []):
-                    if dep not in seen:
-                        seen.add(dep)
-                        all_python_deps.append(dep)
-            union_manifest = {"external_dependencies": {"python": all_python_deps}}
-            missing = install_missing_python_deps(target, union_manifest)
-            if missing:
-                typer.secho(f"Installed missing deps: {', '.join(missing)}", fg=typer.colors.CYAN)
+        if missing:
+            install_python_deps(target, missing)
+            typer.secho(f"Installed missing deps: {', '.join(missing)}", fg=typer.colors.CYAN)
 
         if not no_launcher:
             create_launcher(series, target, odoo_dir=odoo_dir, force=False)
@@ -293,7 +327,7 @@ def run_ovx(
 
         db_name_managed, argv = _build_db_and_argv(target, addon_paths, addons_path_parts, database, extra_args)
 
-        if keep_clone:
+        if keep_clone and target != base:
             typer.secho(f"Clone kept at: {target}", fg=typer.colors.YELLOW)
 
         return run_with_db_lifecycle(argv, db_name_managed)

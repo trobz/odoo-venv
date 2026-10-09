@@ -1,5 +1,6 @@
 """Venv resolution and clone primitives for the ovx command."""
 
+import ast
 import re
 import shutil
 import subprocess
@@ -60,6 +61,19 @@ def resolve_base_venv(
     return ResolvedVenv(path=None, fresh=True, source="fresh")
 
 
+def collect_ext_deps(addon_paths: list[Path]) -> list[str]:
+    """Union of every addon manifest's external_dependencies.python, deduped, first-seen order."""
+    deps: list[str] = []
+    seen: set[str] = set()
+    for p in addon_paths:
+        manifest = ast.literal_eval((p / "__manifest__.py").read_text())
+        for dep in manifest.get("external_dependencies", {}).get("python", []):
+            if dep not in seen:
+                seen.add(dep)
+                deps.append(dep)
+    return deps
+
+
 def clone_venv(base: Path) -> tuple[Path, "Callable[[], None]"]:
     """Clone *base* venv into a temporary directory.
 
@@ -97,22 +111,25 @@ def _patch_pyvenv_cfg(clone: Path, base: Path) -> None:
     cfg.write_text(text)
 
 
-def install_missing_python_deps(clone: Path, manifest: dict) -> list[str]:
-    """Install any python external_dependencies missing from the clone venv.
+def missing_python_deps(venv: Path, deps: list[str]) -> list[str]:
+    """Names in *deps* absent from *venv*'s freeze.
 
-    Returns the list of packages that were actually installed.
+    Returns [] without probing the venv when *deps* is empty, so the common case costs no
+    subprocess. PEP 508 specifiers are not parsed: `paramiko<4.0.0` never matches an installed
+    `paramiko` and is therefore always reported missing. Pre-existing behaviour, carried over
+    deliberately; it errs toward cloning, which is the safe direction.
     """
-    deps: list[str] = manifest.get("external_dependencies", {}).get("python", [])
     if not deps:
         return []
+    installed = _freeze_venv(venv)
+    return [dep for dep in deps if re.sub(r"[-_.]+", "-", dep).lower() not in installed]
 
-    installed = _freeze_venv(clone)
-    missing = [dep for dep in deps if re.sub(r"[-_.]+", "-", dep).lower() not in installed]
-    if not missing:
-        return []
 
+def install_python_deps(venv: Path, packages: list[str]) -> None:
+    """Install *packages* into *venv*. The caller decides what is missing."""
+    if not packages:
+        return
     subprocess.run(  # noqa: S603
-        ["uv", "pip", "install", "--python", str(clone), *missing],  # noqa: S607
+        ["uv", "pip", "install", "--python", str(venv), *packages],  # noqa: S607
         check=True,
     )
-    return missing
