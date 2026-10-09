@@ -11,7 +11,7 @@ from typing import Literal
 
 from odoo_addons_path import get_odoo_version_from_manifest
 
-from odoo_venv.exceptions import OdooVenvError
+from odoo_venv.exceptions import AddonPathNotADirectoryError, ManifestNotFoundError, VenvConfigNotFoundError
 from odoo_venv.main import _freeze_venv
 from odoo_venv.utils import read_venv_config
 
@@ -26,10 +26,10 @@ class ResolvedVenv:
 def get_addon_series(addon_path: Path) -> str | None:
     """Return the Odoo major series (e.g. '19.0') for the given addon directory, or None if undeclared."""
     if not addon_path.is_dir():
-        raise OdooVenvError(f"Addon path is not a directory: {addon_path}")  # noqa: TRY003
+        raise AddonPathNotADirectoryError(addon_path)
     manifest_file = addon_path / "__manifest__.py"
     if not manifest_file.is_file():
-        raise OdooVenvError(f"Missing __manifest__.py in {addon_path}")  # noqa: TRY003
+        raise ManifestNotFoundError(addon_path)
     return get_odoo_version_from_manifest(manifest_file)
 
 
@@ -38,9 +38,7 @@ def read_venv_meta(venv_dir: Path) -> dict[str, str]:
     try:
         _, meta, _, _ = read_venv_config(venv_dir)
     except FileNotFoundError:
-        raise OdooVenvError(  # noqa: TRY003
-            f"No .odoo-venv.toml recorded at {venv_dir}; cannot determine its Odoo series."
-        ) from None
+        raise VenvConfigNotFoundError(venv_dir) from None
     return meta
 
 

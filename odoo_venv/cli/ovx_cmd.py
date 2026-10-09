@@ -5,7 +5,7 @@ from typing import Annotated
 
 import typer
 
-from odoo_venv.exceptions import OdooVenvError
+from odoo_venv.exceptions import EmptyAddonPathEntryError, OdooVenvError
 from odoo_venv.ovx import run_ovx
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
@@ -73,7 +73,7 @@ def main(
 
     parts = [p.strip() for p in addon_paths.split(",")]
     if any(not p for p in parts):
-        raise typer.BadParameter("Empty path entry in comma-separated addon_paths.", param_hint="addon_paths")  # noqa: TRY003
+        raise EmptyAddonPathEntryError
     resolved_paths = [Path(p).expanduser().resolve() for p in parts]
 
     extra_addons: list[str] = []

@@ -17,8 +17,8 @@ from odoo_addons_path import get_addons_path, get_odoo_version_from_release
 from odoo_venv.exceptions import (
     ConflictingOdooSeriesError,
     OdooSeriesUndeterminedError,
-    OdooVenvError,
     OdooVersionUndeterminedError,
+    ResolvedVenvPathMissingError,
     VenvCreationRequiresOdooDirError,
 )
 from odoo_venv.launcher import create_launcher
@@ -129,8 +129,9 @@ def _prepare_target(
 ) -> tuple[Path, "Callable[[], None] | None"]:
     """Create or clone the working venv. Returns (target_path, cleanup_fn)."""
     if resolved.fresh:
-        if odoo_dir is None:
-            raise OdooVenvError("--odoo-dir is required to create a fresh venv")  # noqa: TRY003
+        # _resolve_series already raised VenvCreationRequiresOdooDirError above if odoo_dir
+        # were None here, so this holds by construction.
+        assert odoo_dir is not None  # noqa: S101
         if keep_clone:
             clone_dir = Path(tempfile.mkdtemp(prefix="ovx_fresh_"))
             cleanup = None
@@ -199,7 +200,7 @@ def _prepare_target(
         return target, cleanup
 
     if resolved.path is None:
-        raise OdooVenvError("Internal error: resolved venv path is None")  # noqa: TRY003
+        raise ResolvedVenvPathMissingError
 
     if keep_clone:
         clone_dir = Path(tempfile.mkdtemp(prefix="ovx_clone_"))
