@@ -30,7 +30,7 @@ class TestExtraRequirementsNotFiltered:
     @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
-    @patch("odoo_venv.cli.main.create_odoo_venv")
+    @patch("odoo_venv.cli.main.create_and_register_venv")
     def test_extra_requirement_not_dropped_when_in_ignore_list(self, mock_create, mock_detect, mock_load, mock_ver):
         """lxml in --extra-requirement must reach create_odoo_venv even though the
         preset also sets ignore_from_odoo_requirements=lxml.
@@ -51,7 +51,7 @@ class TestExtraRequirementsNotFiltered:
     @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
-    @patch("odoo_venv.cli.main.create_odoo_venv")
+    @patch("odoo_venv.cli.main.create_and_register_venv")
     def test_preset_extra_requirement_and_ignore_coexist(self, mock_create, mock_detect, mock_load, mock_ver):
         """When a preset both ignores lxml and lists it in extra_requirement, the
         extra_requirement value must still reach create_odoo_venv unchanged.
@@ -73,7 +73,7 @@ class TestExtraRequirementsFileNotFiltered:
     @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
-    @patch("odoo_venv.cli.main.create_odoo_venv")
+    @patch("odoo_venv.cli.main.create_and_register_venv")
     def test_extra_requirements_file_forwarded_with_ignored_package(
         self, mock_create, mock_detect, mock_load, mock_ver
     ):

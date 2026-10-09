@@ -1,5 +1,6 @@
 """Venv resolution and clone primitives for the ovx command."""
 
+import ast
 import re
 import shutil
 import subprocess
@@ -11,8 +12,8 @@ from typing import Literal
 
 from odoo_addons_path import get_odoo_version_from_manifest
 
-from odoo_venv.cli.main import _discover_venvs, _freeze_venv
-from odoo_venv.exceptions import OdooVenvError
+from odoo_venv.exceptions import AddonPathNotADirectoryError, ManifestNotFoundError, VenvConfigNotFoundError
+from odoo_venv.main import _freeze_venv
 from odoo_venv.utils import read_venv_config
 
 
@@ -20,76 +21,57 @@ from odoo_venv.utils import read_venv_config
 class ResolvedVenv:
     path: Path | None
     fresh: bool
-    source: Literal["explicit", "discovered", "fresh"]
+    source: Literal["explicit", "fresh"]
 
 
-def get_addon_series(addon_path: Path) -> str:
-    """Return the Odoo major series (e.g. '19.0') for the given addon directory."""
+def get_addon_series(addon_path: Path) -> str | None:
+    """Return the Odoo major series (e.g. '19.0') for the given addon directory, or None if undeclared."""
     if not addon_path.is_dir():
-        raise OdooVenvError(f"Addon path is not a directory: {addon_path}")  # noqa: TRY003
+        raise AddonPathNotADirectoryError(addon_path)
     manifest_file = addon_path / "__manifest__.py"
     if not manifest_file.is_file():
-        raise OdooVenvError(f"Missing __manifest__.py in {addon_path}")  # noqa: TRY003
-    series = get_odoo_version_from_manifest(manifest_file)
-    if not series:
-        raise OdooVenvError(  # noqa: TRY003
-            f"Could not determine Odoo series from {addon_path}/__manifest__.py "
-            f"(version must be in form 'X.Y.Z.A.B', e.g. '19.0.1.0.0')"
-        )
-    return series
+        raise ManifestNotFoundError(addon_path)
+    return get_odoo_version_from_manifest(manifest_file)
+
+
+def read_venv_meta(venv_dir: Path) -> dict[str, str]:
+    """Read the recorded venv metadata from .odoo-venv.toml, raising an actionable error if absent."""
+    try:
+        _, meta, _, _ = read_venv_config(venv_dir)
+    except FileNotFoundError:
+        raise VenvConfigNotFoundError(venv_dir) from None
+    return meta
 
 
 def resolve_base_venv(
-    manifest_series: str,
     *,
     venv_dir: Path | None,
-    cwd: Path,
     odoo_dir: Path | None,
 ) -> ResolvedVenv:
     """Resolve the base venv to use for an ovx run.
 
-    Priority:
-      1. Explicit --venv-dir (must exist and version-match)
-      2. Auto-discover from cwd (exactly one match)
-      3. Fresh-create signal (requires --odoo-dir)
+    The series disagreement check happens upstream in `_resolve_series`; by the time this
+    function runs, `venv_dir` (if given) is already known to agree with every other source.
     """
-    if venv_dir is not None:
-        _, meta, _, _ = read_venv_config(venv_dir)
-        found_version = meta.get("odoo_version", "")
-        if found_version != manifest_series:
-            raise OdooVenvError(  # noqa: TRY003
-                f"Venv at {venv_dir} is for Odoo {found_version}, "
-                f"but addon requires {manifest_series}. "
-                f"Pass a matching --venv-dir or omit it for auto-discovery."
-            )
+    if venv_dir is not None and venv_dir.exists():
         return ResolvedVenv(path=venv_dir, fresh=False, source="explicit")
 
-    discovered = _discover_venvs(cwd)
-    matches = []
-    for venv in discovered:
-        try:
-            _, meta, _, _ = read_venv_config(venv)
-        except FileNotFoundError:
-            continue
-        if meta.get("odoo_version", "") == manifest_series:
-            matches.append(venv)
-
-    if len(matches) == 1:
-        return ResolvedVenv(path=matches[0], fresh=False, source="discovered")
-
-    if len(matches) > 1:
-        paths = ", ".join(str(m) for m in matches)
-        raise OdooVenvError(  # noqa: TRY003
-            f"Found {len(matches)} venvs for Odoo {manifest_series} ({paths}). Pass --venv-dir to disambiguate."
-        )
-
-    # Zero matches
-    if odoo_dir is None:
-        raise OdooVenvError(  # noqa: TRY003
-            f"No venv found for Odoo {manifest_series} in {cwd}. "
-            f"Pass --odoo-dir to create a fresh venv, or --venv-dir to specify one."
-        )
+    # No existing explicit venv: fresh-create. odoo_dir is guaranteed not None here when
+    # venv_dir is also None, because the CLI enforces at least one of the two flags.
     return ResolvedVenv(path=None, fresh=True, source="fresh")
+
+
+def collect_ext_deps(addon_paths: list[Path]) -> list[str]:
+    """Union of every addon manifest's external_dependencies.python, deduped, first-seen order."""
+    deps: list[str] = []
+    seen: set[str] = set()
+    for p in addon_paths:
+        manifest = ast.literal_eval((p / "__manifest__.py").read_text())
+        for dep in manifest.get("external_dependencies", {}).get("python", []):
+            if dep not in seen:
+                seen.add(dep)
+                deps.append(dep)
+    return deps
 
 
 def clone_venv(base: Path) -> tuple[Path, "Callable[[], None]"]:
@@ -129,22 +111,25 @@ def _patch_pyvenv_cfg(clone: Path, base: Path) -> None:
     cfg.write_text(text)
 
 
-def install_missing_python_deps(clone: Path, manifest: dict) -> list[str]:
-    """Install any python external_dependencies missing from the clone venv.
+def missing_python_deps(venv: Path, deps: list[str]) -> list[str]:
+    """Names in *deps* absent from *venv*'s freeze.
 
-    Returns the list of packages that were actually installed.
+    Returns [] without probing the venv when *deps* is empty, so the common case costs no
+    subprocess. PEP 508 specifiers are not parsed: `paramiko<4.0.0` never matches an installed
+    `paramiko` and is therefore always reported missing. Pre-existing behaviour, carried over
+    deliberately; it errs toward cloning, which is the safe direction.
     """
-    deps: list[str] = manifest.get("external_dependencies", {}).get("python", [])
     if not deps:
         return []
+    installed = _freeze_venv(venv)
+    return [dep for dep in deps if re.sub(r"[-_.]+", "-", dep).lower() not in installed]
 
-    installed = _freeze_venv(clone)
-    missing = [dep for dep in deps if re.sub(r"[-_.]+", "-", dep).lower() not in installed]
-    if not missing:
-        return []
 
+def install_python_deps(venv: Path, packages: list[str]) -> None:
+    """Install *packages* into *venv*. The caller decides what is missing."""
+    if not packages:
+        return
     subprocess.run(  # noqa: S603
-        ["uv", "pip", "install", "--python", str(clone), *missing],  # noqa: S607
+        ["uv", "pip", "install", "--python", str(venv), *packages],  # noqa: S607
         check=True,
     )
-    return missing

@@ -5,7 +5,7 @@ from typing import Annotated
 
 import typer
 
-from odoo_venv.exceptions import OdooVenvError
+from odoo_venv.exceptions import EmptyAddonPathEntryError, OdooVenvError
 from odoo_venv.ovx import run_ovx
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
@@ -49,20 +49,31 @@ def main(
 ):
     """Run an Odoo addon on-the-fly — like npx/uvx but for Odoo.
 
-    Detects the addon's Odoo series from __manifest__.py, resolves or creates
-    a matching venv, installs missing Python dependencies, then runs Odoo with
-    `-i <module>`. The database is ephemeral by default (dropped on exit); pass
-    -d <name> to use a named, persistent database.
+    Resolves the Odoo series from --odoo-dir, --venv-dir, and every addon's manifest,
+    failing fast if any two disagree. One of --odoo-dir or --venv-dir is required: there
+    is no CWD-based venv discovery, so the same command behaves identically from any
+    working directory. Installs missing Python dependencies, then runs Odoo with
+    `-i <module_a>,<module_b>`. The database is ephemeral by default (dropped on exit);
+    pass -d <name> to use a named, persistent database.
 
-    Multiple addons can be passed as a comma-separated list (e.g. ./a,~/oca/b).
-    The first addon's manifest decides the Odoo series; mismatched modules will
-    fail at Odoo's module-not-found error. Paths containing commas are not supported.
+    Multiple addons can be passed as a comma-separated list (e.g. ./a,~/oca/b). Paths
+    containing commas are not supported.
 
     Extra arguments after -- are forwarded verbatim to Odoo.
     """
+    if venv_dir is None and odoo_dir is None:
+        typer.secho(
+            "error: pass --venv-dir or --odoo-dir. Neither is set, so there is no way to resolve "
+            "an Odoo series or venv — this is required even for Odoo core and Enterprise addons, "
+            "which declare no series of their own. Example: ovx ./my_addon --venv-dir ~/code/venvs/18.0",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(1)
+
     parts = [p.strip() for p in addon_paths.split(",")]
     if any(not p for p in parts):
-        raise typer.BadParameter("Empty path entry in comma-separated addon_paths.", param_hint="addon_paths")  # noqa: TRY003
+        raise EmptyAddonPathEntryError
     resolved_paths = [Path(p).expanduser().resolve() for p in parts]
 
     extra_addons: list[str] = []
@@ -77,7 +88,6 @@ def main(
             keep_clone=keep_clone,
             no_launcher=no_launcher,
             extra_args=ctx.args,
-            cwd=Path.cwd(),
             addons_path=extra_addons,
         )
         raise typer.Exit(rc)
