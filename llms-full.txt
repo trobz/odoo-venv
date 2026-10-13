@@ -1,0 +1,260 @@
+# odoo-venv
+
+> CLI tool to spin up isolated Odoo dev environments in seconds. Handles Python version selection, dependency resolution, preset-based configuration, and launcher script generation.
+
+---
+
+## Getting Started
+
+*Source: site-docs/docs/getting-started.md*
+
+### Installation
+
+```bash
+uv tool install odoo-venv
+odoo-venv --version
+```
+
+### Create an environment
+
+```bash
+odoo-venv create 19.0 --odoo-dir ~/code/odoo/19.0
+```
+
+Creates a virtual environment, installs the right Python version, Odoo requirements.txt, and Odoo itself in editable mode. Python version is auto-selected based on the Odoo version.
+
+### Presets
+
+```bash
+odoo-venv create 19.0 --odoo-dir ~/code/odoo/19.0 --preset local
+```
+
+Define presets in ~/.local/share/odoo-venv/presets.toml. The [common] section applies to all presets automatically.
+
+---
+
+## CLI Reference: odoo-venv create
+
+*Source: site-docs/docs/reference/page-1.md*
+
+Create a virtual environment to run Odoo.
+
+```bash
+odoo-venv create [ODOO_VERSION] [OPTIONS]
+```
+
+### Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| ODOO_VERSION | No | Odoo version, e.g. 19.0. Inferred from --project-dir if omitted. |
+
+### Core options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| --python-version, -p | Auto | Python version. Auto-selected based on Odoo version if omitted. |
+| --venv-dir | ./.venv | Path to create the virtual environment. |
+| --odoo-dir | Auto | Path to Odoo source code. |
+| --addons-path | — | Comma-separated list of addons paths. |
+| --preset | — | Use a preset of options. |
+| --project-dir | — | Path to project directory. Auto-detects addons/odoo paths and applies --preset=project. |
+
+### Install controls
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| --install-odoo / --no-install-odoo | True | Install Odoo in editable mode. |
+| --install-odoo-requirements / --no-install-odoo-requirements | True | Install packages from Odoo requirements.txt. |
+| --install-addons-dirs-requirements / --no-install-addons-dirs-requirements | False | Install requirements.txt found in addons paths. |
+| --install-addons-manifests-requirements / --no-install-addons-manifests-requirements | False | Install requirements from addons __manifest__.py files. |
+
+### Ignore lists
+
+| Option | Description |
+|--------|-------------|
+| --ignore-from-odoo-requirements | Comma-separated packages to skip from Odoo requirements.txt. |
+| --ignore-from-addons-dirs-requirements | Comma-separated packages to skip from addons requirements.txt. |
+| --ignore-from-addons-manifests-requirements | Comma-separated packages to skip from addons manifests. |
+
+### Extra packages
+
+| Option | Description |
+|--------|-------------|
+| --extra-requirements-file | Path to an extra requirements file. |
+| --extra-requirement | Comma-separated list of extra packages. |
+
+### Behavior
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| --verbose | False | Display more details. |
+| --dry-run | False | Show what would be done without doing it. |
+| --skip-on-failure / --no-skip-on-failure | False | Automatically skip packages that fail to install and retry. |
+| --create-launcher / --no-create-launcher | False | Generate a launcher script in ~/.local/bin/. |
+| --report-errors | False | On failure, automatically open a GitHub issue with the full output. |
+
+### Examples
+
+```bash
+# Basic
+odoo-venv create 19.0 --odoo-dir ~/code/odoo/odoo/19.0
+
+# With addons and extra packages
+odoo-venv create 19.0 \
+    --odoo-dir ~/code/odoo/odoo/19.0 \
+    --addons-path ~/code/odoo/addons/web,~/code/odoo/addons/mail \
+    --install-addons-dirs-requirements \
+    --install-addons-manifests-requirements \
+    --extra-requirement "debugpy,ipython"
+
+# Using a preset
+odoo-venv create 19.0 --preset local
+
+# Project directory auto-detection
+odoo-venv create --project-dir ~/code/my-odoo-project
+
+# Dry run
+odoo-venv create 19.0 --odoo-dir ~/code/odoo/odoo/19.0 --dry-run --verbose
+```
+
+---
+
+## CLI Reference: odoo-venv compare
+
+*Source: site-docs/docs/reference/page-2.md*
+
+Compare installed package versions across virtual environments.
+
+```bash
+odoo-venv compare VENV_DIRS... [OPTIONS]
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| --no-latest | False | Do not fetch or show the Latest column from PyPI. |
+
+```bash
+odoo-venv compare .venv-17 .venv-18
+```
+
+---
+
+## CLI Reference: odoo-venv create-odoo-launcher
+
+*Source: site-docs/docs/reference/page-3.md*
+
+Generate a launcher script in ~/.local/bin/ for the Odoo environment.
+
+```bash
+odoo-venv create-odoo-launcher ODOO_VERSION [OPTIONS]
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| --venv-dir | — | Path to the virtual environment. |
+| --force | False | Overwrite existing launcher script. |
+
+```bash
+odoo-venv create-odoo-launcher 19.0 --venv-dir ./.venv --force
+```
+
+Creates ~/.local/bin/odoo-v19 that activates the venv and runs Odoo.
+
+---
+
+## Known Dependency Problems: Overview
+
+*Source: site-docs/docs/known-dependency-problem/index.md*
+
+Installing Odoo and addons involves dependency management that regularly breaks in predictable ways. odoo-venv handles all of these automatically.
+
+| Problem | What goes wrong |
+|---------|----------------|
+| Import name != package name | Addon manifest says git, pip needs GitPython |
+| Version conflicts | Odoo pins pytz==2016.7, your addon needs pytz>=2020.1 |
+| Build isolation errors | use_2to3 is invalid when installing old packages |
+| Transitive dependency issues | Installing magento pulls suds-jurko which fails to build |
+
+---
+
+## Known Dependency Problems: Import Name vs Package Name
+
+*Source: site-docs/docs/known-dependency-problem/import-name-vs-package-name.md*
+
+Odoo addon manifests use import names, not pip package names. odoo-venv auto-translates via a built-in mapping table when --install-addons-manifests-requirements is enabled.
+
+| Import name | Correct pip package |
+|-------------|-------------------|
+| stdnum | python-stdnum |
+| crypto | pycryptodome |
+| openssl | pyOpenSSL |
+| dateutil | python-dateutil |
+| yaml | pyyaml |
+| usb | pyusb |
+| serial | pyserial |
+| pil | Pillow |
+| magic | python-magic |
+| bs4 | beautifulsoup4 |
+| sklearn | scikit-learn |
+| ldap | python-ldap |
+| git | GitPython |
+| accept_language | parse-accept-language |
+| dns | dnspython |
+| graphql_server | graphql-server-core |
+
+Lookup is case-insensitive.
+
+---
+
+## Known Dependency Problems: Version Conflicts
+
+*Source: site-docs/docs/known-dependency-problem/version-conflicts.md*
+
+Odoo pins exact dependency versions. odoo-venv resolves conflicts via:
+
+1. User pin auto-override: drops Odoo pin when your addon specifies a conflicting constraint
+2. Known transitive conflict table:
+
+| Trigger package | Odoo pins relaxed |
+|----------------|-------------------|
+| matplotlib | pyparsing |
+| pandas | python-dateutil, pytz |
+| altair | python-dateutil, pytz |
+| klaviyo-api | requests |
+| google-books-api-wrapper | idna |
+
+Use --verbose to see which pins are auto-ignored.
+
+---
+
+## Known Dependency Problems: Build Isolation Errors
+
+*Source: site-docs/docs/known-dependency-problem/build-isolation-errors.md*
+
+setuptools 58.0 removed use_2to3, breaking legacy packages in isolated builds. odoo-venv No Build Isolation (NBI) Registry:
+
+| Package | Condition |
+|---------|-----------|
+| vatnumber | Odoo <= 13.0 |
+| suds-jurko | Odoo <= 13.0 |
+| magento | Odoo <= 13.0 |
+| rfc6266-parser | Always |
+
+For NBI packages: installs setuptools<58.0 + wheel first, then reinstalls with --no-build-isolation.
+
+---
+
+## Known Dependency Problems: Transitive Dependency Issues
+
+*Source: site-docs/docs/known-dependency-problem/transitive-dependency-issues.md*
+
+When a package depends on a broken transitive dep (e.g. magento -> suds-jurko), the whole install fails. odoo-venv registers parent packages in the NBI registry when their transitive deps need --no-build-isolation.
+
+For unknown cases, --skip-on-failure auto-removes failing packages, retries, and reports skipped packages at the end.
+
+---
+
+## Optional
+
+- [Changelog](CHANGELOG.md): Version history and release notes.
