@@ -75,6 +75,9 @@ def main(
     if any(not p for p in parts):
         raise EmptyAddonPathEntryError
     resolved_paths = [Path(p).expanduser().resolve() for p in parts]
+    # A `--odoo-dir=~/x` form reaches us unexpanded: shells only expand `~` after `=` in assignments.
+    venv_dir = venv_dir.expanduser().resolve() if venv_dir else None
+    odoo_dir = odoo_dir.expanduser().resolve() if odoo_dir else None
 
     extra_addons: list[str] = []
     if addons_path:

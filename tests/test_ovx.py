@@ -1164,6 +1164,19 @@ class TestOvxCmdAddonsPathFlag:
         assert args[1] == addon_b.resolve()
 
     @patch("odoo_venv.cli.ovx_cmd.run_ovx", return_value=0)
+    def test_tilde_in_dir_options_expanded(self, mock_run_ovx, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        addon = tmp_path / "my_addon"
+        addon.mkdir()
+
+        runner = CliRunner()
+        runner.invoke(app, [str(addon), "--odoo-dir=~/odoo", "--venv-dir=~/venv"])
+
+        kwargs = mock_run_ovx.call_args[1]
+        assert kwargs["odoo_dir"] == (tmp_path / "odoo").resolve()
+        assert kwargs["venv_dir"] == (tmp_path / "venv").resolve()
+
+    @patch("odoo_venv.cli.ovx_cmd.run_ovx", return_value=0)
     def test_empty_entry_raises_bad_parameter(self, mock_run_ovx, tmp_path):
         addon = tmp_path / "mod_a"
         addon.mkdir()
