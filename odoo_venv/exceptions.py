@@ -48,6 +48,11 @@ class ResolvedVenvPathMissingError(OdooVenvError):
         super().__init__("Internal error: resolved venv path is None")
 
 
+class OdooDirNotFoundError(OdooVenvError):
+    def __init__(self, odoo_dir: Path) -> None:
+        super().__init__(f"--odoo-dir {odoo_dir} does not exist or is not a directory")
+
+
 class OdooVersionUndeterminedError(OdooVenvError):
     def __init__(self, odoo_dir: Path) -> None:
         super().__init__(f"Could not determine the Odoo version from --odoo-dir {odoo_dir}")

@@ -18,6 +18,7 @@ from odoo_venv.exceptions import (
     ConflictingOdooSeriesError,
     FreshVenvRequiresVenvDirError,
     NonInteractiveVenvCreationError,
+    OdooDirNotFoundError,
     OdooSeriesUndeterminedError,
     OdooVersionUndeterminedError,
     ResolvedVenvPathMissingError,
@@ -251,6 +252,8 @@ def _resolve_series(
     participants: list[tuple[str, str | None]] = []
 
     if odoo_dir is not None:
+        if not odoo_dir.is_dir():
+            raise OdooDirNotFoundError(odoo_dir)
         version = get_odoo_version_from_release(odoo_dir)
         if version is None:
             raise OdooVersionUndeterminedError(odoo_dir)

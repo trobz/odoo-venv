@@ -12,6 +12,7 @@ from odoo_venv.exceptions import (
     ConflictingOdooSeriesError,
     FreshVenvRequiresVenvDirError,
     NonInteractiveVenvCreationError,
+    OdooDirNotFoundError,
     OdooSeriesUndeterminedError,
     VenvCreationRequiresOdooDirError,
 )
@@ -121,6 +122,12 @@ class TestResolveSeries:
             _resolve_series([addon], odoo_dir=odoo_dir, venv_dir=None, venv_meta=None)
         assert "18.0" in str(exc.value)
         assert "17.0" in str(exc.value)
+
+    def test_missing_odoo_dir_reported_as_not_found(self, tmp_path):
+        addon = self._make_addon(tmp_path)
+
+        with pytest.raises(OdooDirNotFoundError):
+            _resolve_series([addon], odoo_dir=tmp_path / "nope", venv_dir=None, venv_meta=None)
 
     def test_venv_meta_conflicts_with_odoo_dir(self, tmp_path):
         addon = self._make_addon(tmp_path, version="17.0.1.0.0")
