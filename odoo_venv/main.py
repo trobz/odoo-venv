@@ -32,6 +32,17 @@ PKG_NAME_PATTERN = re.compile(r"(?P<lib_name>[a-z0-9A-Z\-\_\.]+)((>|<|=)=)?(.*)"
 
 VALID_STAGES = {"after_venv", "after_requirements", "after_odoo_install"}
 
+# uv >= 0.13.0's default tar backend rejects pre-POSIX (v7) tar sdists that old Odoo
+# requirements still pin, e.g. PyPDF2==1.26.0 for Python <= 3.10. A value already set
+# in the environment wins, so users can opt back into the new backend.
+UV_ENV_DEFAULTS = {"UV_LEGACY_TAR_BACKEND": "1"}
+
+
+def uv_env() -> dict[str, str]:
+    """Return a copy of os.environ with UV_ENV_DEFAULTS filled in where unset."""
+    return {**UV_ENV_DEFAULTS, **os.environ}
+
+
 # In Odoo <= 12.0, external_dependencies.python lists importable module names, not pip package
 # names (the module loader used importlib.import_module to validate them).  This mapping translates
 # the most common mismatches so we can install the correct pip package.
@@ -426,7 +437,7 @@ def _run_command(
     if verbose:
         typer.secho(f"  → Running: {' '.join(command)}", fg=typer.colors.BLUE)
 
-    env = os.environ.copy()
+    env = uv_env()
     if venv_dir:
         env["PATH"] = str(venv_dir / "bin") + os.pathsep + env["PATH"]
         env["VIRTUAL_ENV"] = str(venv_dir)

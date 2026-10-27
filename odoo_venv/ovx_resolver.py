@@ -13,7 +13,7 @@ from typing import Literal
 from odoo_addons_path import get_odoo_version_from_manifest
 
 from odoo_venv.exceptions import AddonPathNotADirectoryError, ManifestNotFoundError, VenvConfigNotFoundError
-from odoo_venv.main import _freeze_venv
+from odoo_venv.main import _freeze_venv, uv_env
 from odoo_venv.utils import read_venv_config
 
 
@@ -132,4 +132,5 @@ def install_python_deps(venv: Path, packages: list[str]) -> None:
     subprocess.run(  # noqa: S603
         ["uv", "pip", "install", "--python", str(venv), *packages],  # noqa: S607
         check=True,
+        env=uv_env(),
     )
