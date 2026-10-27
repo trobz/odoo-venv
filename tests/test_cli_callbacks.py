@@ -51,7 +51,7 @@ class TestPresetOrdering:
     @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
-    @patch("odoo_venv.cli.main.create_odoo_venv")
+    @patch("odoo_venv.cli.main.create_and_register_venv")
     def test_preset_before_project_dir(self, mock_create, mock_detect, mock_load, mock_ver):
         """--preset local --project-dir /opt/project: preset fires first, project preset skipped."""
         result = runner.invoke(app, [*_BASE_ARGS, "--preset", "local", "--project-dir", "/opt/project"])
@@ -70,7 +70,7 @@ class TestPresetOrdering:
     @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
-    @patch("odoo_venv.cli.main.create_odoo_venv")
+    @patch("odoo_venv.cli.main.create_and_register_venv")
     def test_project_dir_before_preset(self, mock_create, mock_detect, mock_load, mock_ver):
         """--project-dir /opt/project --preset local: project-dir fires first but local wins."""
         result = runner.invoke(app, [*_BASE_ARGS, "--project-dir", "/opt/project", "--preset", "local"])
@@ -86,7 +86,7 @@ class TestPresetOrdering:
     @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
-    @patch("odoo_venv.cli.main.create_odoo_venv")
+    @patch("odoo_venv.cli.main.create_and_register_venv")
     def test_project_dir_without_preset(self, mock_create, mock_detect, mock_load, mock_ver):
         """--project-dir /opt/project (no --preset): "project" preset is auto-applied silently."""
         result = runner.invoke(app, [*_BASE_ARGS, "--project-dir", "/opt/project"])
@@ -104,7 +104,7 @@ class TestExtraRequirementAdditive:
     @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
-    @patch("odoo_venv.cli.main.create_odoo_venv")
+    @patch("odoo_venv.cli.main.create_and_register_venv")
     def test_extra_requirement_merges_with_preset(self, mock_create, mock_detect, mock_load, mock_ver):
         """--preset local --extra-requirement=mypkg: final list = preset + CLI packages."""
         result = runner.invoke(app, [*_BASE_ARGS, "--preset", "local", "--extra-requirement", "mypkg"])
@@ -121,7 +121,7 @@ class TestExtraRequirementAdditive:
     @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
-    @patch("odoo_venv.cli.main.create_odoo_venv")
+    @patch("odoo_venv.cli.main.create_and_register_venv")
     def test_no_extra_requirement_uses_preset_only(self, mock_create, mock_detect, mock_load, mock_ver):
         """--preset local (no --extra-requirement): only preset packages."""
         result = runner.invoke(app, [*_BASE_ARGS, "--preset", "local"])
@@ -133,7 +133,7 @@ class TestExtraRequirementAdditive:
     @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
-    @patch("odoo_venv.cli.main.create_odoo_venv")
+    @patch("odoo_venv.cli.main.create_and_register_venv")
     def test_extra_requirement_without_preset(self, mock_create, mock_detect, mock_load, mock_ver):
         """--extra-requirement=mypkg (no preset): common + CLI package."""
         result = runner.invoke(app, [*_BASE_ARGS, "--extra-requirement", "mypkg"])
@@ -151,7 +151,7 @@ class TestDefaultCommonPreset:
     @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
-    @patch("odoo_venv.cli.main.create_odoo_venv")
+    @patch("odoo_venv.cli.main.create_and_register_venv")
     def test_no_preset_applies_common(self, mock_create, mock_detect, mock_load, mock_ver):
         """No --preset and no --project-dir: common preset is applied."""
         result = runner.invoke(app, [*_BASE_ARGS])
@@ -163,7 +163,7 @@ class TestDefaultCommonPreset:
     @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
-    @patch("odoo_venv.cli.main.create_odoo_venv")
+    @patch("odoo_venv.cli.main.create_and_register_venv")
     def test_no_preset_applies_common_default_map_fields(self, mock_create, mock_detect, mock_load, mock_ver):
         """No --preset: common's default_map fields (ignore_from_*) reach function params."""
         result = runner.invoke(app, [*_BASE_ARGS])
@@ -176,7 +176,7 @@ class TestDefaultCommonPreset:
     @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
-    @patch("odoo_venv.cli.main.create_odoo_venv")
+    @patch("odoo_venv.cli.main.create_and_register_venv")
     def test_cli_flag_overrides_common_default(self, mock_create, mock_detect, mock_load, mock_ver):
         """Explicit --ignore-from-odoo-requirements overrides common preset value."""
         result = runner.invoke(app, [*_BASE_ARGS, "--ignore-from-odoo-requirements", "mypkg"])
@@ -188,7 +188,7 @@ class TestDefaultCommonPreset:
     @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
-    @patch("odoo_venv.cli.main.create_odoo_venv")
+    @patch("odoo_venv.cli.main.create_and_register_venv")
     def test_explicit_preset_skips_default_common(self, mock_create, mock_detect, mock_load, mock_ver):
         """--preset local: common is already merged into local via load_presets, no double-apply."""
         result = runner.invoke(app, [*_BASE_ARGS, "--preset", "local"])
@@ -206,7 +206,7 @@ class TestProjectDirDetectionSkip:
     @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
-    @patch("odoo_venv.cli.main.create_odoo_venv")
+    @patch("odoo_venv.cli.main.create_and_register_venv")
     def test_detection_skipped_when_both_paths_explicit(self, mock_create, mock_detect, mock_load, mock_ver):
         result = runner.invoke(
             app,
@@ -223,7 +223,7 @@ class TestProjectDirDetectionSkip:
     @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
-    @patch("odoo_venv.cli.main.create_odoo_venv")
+    @patch("odoo_venv.cli.main.create_and_register_venv")
     def test_detection_runs_when_addons_path_missing(self, mock_create, mock_detect, mock_load, mock_ver):
         result = runner.invoke(app, [*_BASE_ARGS, "--project-dir", "/opt/project"])
 
@@ -233,7 +233,7 @@ class TestProjectDirDetectionSkip:
     @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
     @patch("odoo_venv.cli.main._detect_project_layout", return_value=(None, None, None))
-    @patch("odoo_venv.cli.main.create_odoo_venv")
+    @patch("odoo_venv.cli.main.create_and_register_venv")
     def test_detection_runs_when_odoo_dir_missing(self, mock_create, mock_detect, mock_load, mock_ver):
         result = runner.invoke(
             app,
@@ -246,7 +246,7 @@ class TestProjectDirDetectionSkip:
 
     @_MOCK_VERSION
     @patch("odoo_venv.cli.main.load_presets", return_value=FAKE_PRESETS)
-    @patch("odoo_venv.cli.main.create_odoo_venv")
+    @patch("odoo_venv.cli.main.create_and_register_venv")
     def test_undetectable_project_dir_succeeds_with_explicit_paths(self, mock_create, mock_load, mock_ver, tmp_path):
         """Regression: an empty project dir used to abort with "No codebase layout detected"."""
         project_dir = tmp_path / "instance"
