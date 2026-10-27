@@ -67,6 +67,8 @@ def build_odoo_argv(
         joined,
         "-d",
         db_name,
+        # Crons would race the module install; extra_args come last so the user can override.
+        "--max-cron-threads=0",
         *extra_args,
     ]
 

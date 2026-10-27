@@ -317,6 +317,18 @@ class TestBuildOdooArgv:
         argv = build_odoo_argv(venv, [addon], [], "testdb", extra_args=["--log-level=debug"])
         assert "--log-level=debug" in argv
 
+    def test_crons_disabled_by_default(self, tmp_path):
+        venv = tmp_path / "venv"
+        addon = tmp_path / "my_addon"
+        argv = build_odoo_argv(venv, [addon], [], "testdb", extra_args=[])
+        assert "--max-cron-threads=0" in argv
+
+    def test_user_max_cron_threads_comes_after_default(self, tmp_path):
+        venv = tmp_path / "venv"
+        addon = tmp_path / "my_addon"
+        argv = build_odoo_argv(venv, [addon], [], "testdb", extra_args=["--max-cron-threads=2"])
+        assert argv.index("--max-cron-threads=2") > argv.index("--max-cron-threads=0")
+
     def test_two_module_argv(self, tmp_path):
         venv = tmp_path / "venv"
         parent_a = tmp_path / "src_a"

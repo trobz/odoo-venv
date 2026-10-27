@@ -35,6 +35,8 @@ Resolves the Odoo series from `--odoo-dir`, `--venv-dir`, and every addon's mani
 
 Extra arguments after `--` are forwarded verbatim to Odoo.
 
+Cron threads are disabled by default (`--max-cron-threads=0`). Pass `-- --max-cron-threads=N` to re-enable them.
+
 ## Venv resolution
 
 `ovx` has no CWD-based venv discovery — the same command behaves identically from any working directory. At least one of `--venv-dir` or `--odoo-dir` is required:
