@@ -123,14 +123,14 @@ def run_with_db_lifecycle(odoo_cmd: list[str], db_name: str | None) -> int:
     return rc
 
 
-def _confirm_venv_creation(venv_dir: Path, series: str) -> bool:
+def _confirm_venv_creation(venv_dir: Path, series: str, odoo_dir: Path) -> bool:
     """Ask the user whether to create a base venv at *venv_dir*.
 
     Refuses outright when there is no interactive terminal: building an Odoo venv is a
     multi-minute, multi-gigabyte operation that must never happen unattended by accident.
     """
     if not sys.stdin.isatty():
-        raise NonInteractiveVenvCreationError(venv_dir)
+        raise NonInteractiveVenvCreationError(venv_dir, odoo_dir)
     return typer.confirm(f"No venv at {venv_dir}. Create an Odoo {series} venv there?", default=True)
 
 
@@ -304,12 +304,12 @@ def run_ovx(
     if resolved.fresh:
         if venv_dir is None:
             raise FreshVenvRequiresVenvDirError
-        if not _confirm_venv_creation(venv_dir, series):
-            typer.secho("Aborted: no venv created.", fg=typer.colors.YELLOW)
-            return 1
         # _resolve_series already raised VenvCreationRequiresOdooDirError above if odoo_dir
         # were None here, so this holds by construction.
         assert odoo_dir is not None  # noqa: S101
+        if not _confirm_venv_creation(venv_dir, series, odoo_dir):
+            typer.secho("Aborted: no venv created.", fg=typer.colors.YELLOW)
+            return 1
         base = _create_base_venv_atomically(venv_dir, addon_paths, series, odoo_dir, extra_addons)
     else:
         if resolved.path is None:

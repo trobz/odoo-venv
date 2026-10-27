@@ -36,10 +36,10 @@ class FreshVenvRequiresVenvDirError(OdooVenvError):
 
 
 class NonInteractiveVenvCreationError(OdooVenvError):
-    def __init__(self, venv_dir: Path) -> None:
+    def __init__(self, venv_dir: Path, odoo_dir: Path) -> None:
         super().__init__(
             f"refusing to create a venv at {venv_dir} without confirmation: no interactive terminal. "
-            f"Create it first with: odoo-venv create --venv-dir {venv_dir} --odoo-dir <odoo source>"
+            f"Create it first with: odoo-venv create --venv-dir {venv_dir} --odoo-dir {odoo_dir}"
         )
 
 

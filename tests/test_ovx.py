@@ -904,7 +904,7 @@ class TestRunOvxFreshVenv:
         odoo_dir = tmp_path / "odoo"
         odoo_dir.mkdir()
 
-        with pytest.raises(NonInteractiveVenvCreationError):
+        with pytest.raises(NonInteractiveVenvCreationError) as exc:
             run_ovx(
                 [addon],
                 venv_dir=tmp_path / "new_venv",
@@ -914,6 +914,7 @@ class TestRunOvxFreshVenv:
                 no_launcher=True,
                 extra_args=[],
             )
+        assert f"--odoo-dir {odoo_dir}" in str(exc.value)
         mock_create_venv.assert_not_called()
 
     @patch("odoo_venv.ovx.typer.confirm", return_value=False)
