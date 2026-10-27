@@ -31,7 +31,6 @@ Resolves the Odoo series from `--odoo-dir`, `--venv-dir`, and every addon's mani
 | `--venv-dir` | — | Explicit venv to use (must match the addon's Odoo series). |
 | `--odoo-dir` | — | Odoo source directory. Required on cold start, where it supplies the Odoo source the venv is built from. |
 | `-d`, `--database` | — | Named DB to use. Suppresses ephemeral DB creation and cleanup. |
-| `--no-launcher` | `False` | Skip launcher script creation. |
 | `--addons-path` | — | Extra addons paths (comma-separated) for modules the target addons depend on, e.g. enterprise or OCA checkouts. Merged with the venv's stored `addons_path` and the addons' own parent directories. |
 
 Extra arguments after `--` are forwarded verbatim to Odoo.

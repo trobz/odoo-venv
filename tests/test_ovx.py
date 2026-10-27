@@ -198,7 +198,6 @@ class TestRunOvxSeriesConflict:
                 odoo_dir=odoo_dir,
                 database="testdb",
                 keep_clone=False,
-                no_launcher=True,
                 extra_args=[],
             )
         mock_create_venv.assert_not_called()
@@ -541,7 +540,6 @@ class TestResolveAddonsPath:
 class TestRunOvxAddonsPath:
     @patch("odoo_venv.ovx._resolve_addons_path")
     @patch("odoo_venv.ovx.run_with_db_lifecycle", return_value=0)
-    @patch("odoo_venv.ovx.create_launcher")
     @patch("odoo_venv.ovx.missing_python_deps", return_value=[])
     @patch("odoo_venv.ovx.clone_venv")
     @patch("odoo_venv.ovx.resolve_base_venv")
@@ -552,7 +550,6 @@ class TestRunOvxAddonsPath:
         mock_resolve,
         mock_clone,
         mock_missing,
-        mock_launcher,
         mock_run,
         mock_addons_path,
         tmp_path,
@@ -577,7 +574,6 @@ class TestRunOvxAddonsPath:
             odoo_dir=None,
             database="testdb",
             keep_clone=False,
-            no_launcher=True,
             extra_args=[],
             addons_path=["/extra/path"],
         )
@@ -591,7 +587,6 @@ class TestRunOvxAddonsPath:
     @patch("odoo_venv.ovx.create_and_register_venv")
     @patch("odoo_venv.ovx.resolve_common_preset", return_value=None)
     @patch("odoo_venv.ovx.run_with_db_lifecycle", return_value=0)
-    @patch("odoo_venv.ovx.create_launcher")
     @patch("odoo_venv.ovx.resolve_base_venv")
     @patch("odoo_venv.ovx.get_odoo_version_from_release", return_value="17.0")
     @patch("odoo_venv.ovx.get_addon_series", return_value="17.0")
@@ -600,7 +595,6 @@ class TestRunOvxAddonsPath:
         mock_series,
         mock_release_version,
         mock_resolve,
-        mock_launcher,
         mock_run,
         mock_preset,
         mock_create_venv,
@@ -630,7 +624,6 @@ class TestRunOvxAddonsPath:
             odoo_dir=odoo_dir,
             database="testdb",
             keep_clone=True,
-            no_launcher=True,
             extra_args=[],
             addons_path=["/oca/path"],
         )
@@ -640,7 +633,6 @@ class TestRunOvxAddonsPath:
         assert "/oca/path" in call_kwargs["addons_paths"]
 
     @patch("odoo_venv.ovx.run_with_db_lifecycle", return_value=0)
-    @patch("odoo_venv.ovx.create_launcher")
     @patch("odoo_venv.ovx.missing_python_deps", return_value=[])
     @patch("odoo_venv.ovx.clone_venv")
     @patch("odoo_venv.ovx.resolve_base_venv")
@@ -651,7 +643,6 @@ class TestRunOvxAddonsPath:
         mock_resolve,
         mock_clone,
         mock_missing,
-        mock_launcher,
         mock_run,
         tmp_path,
     ):
@@ -681,7 +672,6 @@ class TestRunOvxAddonsPath:
             odoo_dir=None,
             database="testdb",
             keep_clone=False,
-            no_launcher=True,
             extra_args=[],
         )
 
@@ -709,7 +699,6 @@ class TestRunOvxFastPath:
 
     @patch("odoo_venv.ovx._resolve_addons_path", return_value=[])
     @patch("odoo_venv.ovx.run_with_db_lifecycle", return_value=0)
-    @patch("odoo_venv.ovx.create_launcher")
     @patch("odoo_venv.ovx.missing_python_deps", return_value=[])
     @patch("odoo_venv.ovx.install_python_deps")
     @patch("odoo_venv.ovx.clone_venv")
@@ -722,7 +711,6 @@ class TestRunOvxFastPath:
         mock_clone,
         mock_install,
         mock_missing,
-        mock_launcher,
         mock_run,
         mock_addons_path,
         tmp_path,
@@ -737,7 +725,6 @@ class TestRunOvxFastPath:
             odoo_dir=None,
             database="testdb",
             keep_clone=False,
-            no_launcher=True,
             extra_args=[],
         )
 
@@ -748,7 +735,6 @@ class TestRunOvxFastPath:
 
     @patch("odoo_venv.ovx._resolve_addons_path", return_value=[])
     @patch("odoo_venv.ovx.run_with_db_lifecycle", return_value=0)
-    @patch("odoo_venv.ovx.create_launcher")
     @patch("odoo_venv.ovx.missing_python_deps", return_value=["fakepkg"])
     @patch("odoo_venv.ovx.install_python_deps")
     @patch("odoo_venv.ovx.clone_venv")
@@ -761,7 +747,6 @@ class TestRunOvxFastPath:
         mock_clone,
         mock_install,
         mock_missing,
-        mock_launcher,
         mock_run,
         mock_addons_path,
         tmp_path,
@@ -778,7 +763,6 @@ class TestRunOvxFastPath:
             odoo_dir=None,
             database="testdb",
             keep_clone=False,
-            no_launcher=True,
             extra_args=[],
         )
 
@@ -789,7 +773,6 @@ class TestRunOvxFastPath:
 
     @patch("odoo_venv.ovx._resolve_addons_path", return_value=[])
     @patch("odoo_venv.ovx.run_with_db_lifecycle", return_value=0)
-    @patch("odoo_venv.ovx.create_launcher")
     @patch("odoo_venv.ovx_resolver._freeze_venv")
     @patch("odoo_venv.ovx.clone_venv")
     @patch("odoo_venv.ovx.resolve_base_venv")
@@ -800,7 +783,6 @@ class TestRunOvxFastPath:
         mock_resolve,
         mock_clone,
         mock_freeze,
-        mock_launcher,
         mock_run,
         mock_addons_path,
         tmp_path,
@@ -815,7 +797,6 @@ class TestRunOvxFastPath:
             odoo_dir=None,
             database="testdb",
             keep_clone=False,
-            no_launcher=True,
             extra_args=[],
         )
 
@@ -824,7 +805,6 @@ class TestRunOvxFastPath:
 
     @patch("odoo_venv.ovx._resolve_addons_path", return_value=[])
     @patch("odoo_venv.ovx.run_with_db_lifecycle", return_value=0)
-    @patch("odoo_venv.ovx.create_launcher")
     @patch("odoo_venv.ovx.missing_python_deps", return_value=[])
     @patch("odoo_venv.ovx.clone_venv")
     @patch("odoo_venv.ovx.resolve_base_venv")
@@ -835,7 +815,6 @@ class TestRunOvxFastPath:
         mock_resolve,
         mock_clone,
         mock_missing,
-        mock_launcher,
         mock_run,
         mock_addons_path,
         tmp_path,
@@ -851,7 +830,6 @@ class TestRunOvxFastPath:
             odoo_dir=None,
             database="testdb",
             keep_clone=True,
-            no_launcher=True,
             extra_args=[],
         )
 
@@ -892,7 +870,6 @@ class TestRunOvxFreshVenv:
                 odoo_dir=odoo_dir,
                 database="testdb",
                 keep_clone=False,
-                no_launcher=True,
                 extra_args=[],
             )
 
@@ -911,7 +888,6 @@ class TestRunOvxFreshVenv:
                 odoo_dir=odoo_dir,
                 database="testdb",
                 keep_clone=False,
-                no_launcher=True,
                 extra_args=[],
             )
         assert f"--odoo-dir {odoo_dir}" in str(exc.value)
@@ -936,7 +912,6 @@ class TestRunOvxFreshVenv:
             odoo_dir=odoo_dir,
             database="testdb",
             keep_clone=False,
-            no_launcher=True,
             extra_args=[],
         )
 
@@ -977,7 +952,6 @@ class TestRunOvxFreshVenv:
             odoo_dir=odoo_dir,
             database="testdb",
             keep_clone=False,
-            no_launcher=True,
             extra_args=[],
         )
 
@@ -1033,7 +1007,6 @@ class TestRunOvxFreshVenv:
             odoo_dir=odoo_dir,
             database="testdb",
             keep_clone=False,
-            no_launcher=True,
             extra_args=[],
         )
 
@@ -1069,7 +1042,6 @@ class TestRunOvxFreshVenv:
                 odoo_dir=odoo_dir,
                 database="testdb",
                 keep_clone=False,
-                no_launcher=True,
                 extra_args=[],
             )
 
@@ -1104,7 +1076,6 @@ class TestRunOvxFreshVenv:
                 odoo_dir=odoo_dir,
                 database="testdb",
                 keep_clone=False,
-                no_launcher=True,
                 extra_args=[],
             )
 

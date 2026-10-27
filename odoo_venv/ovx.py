@@ -24,7 +24,6 @@ from odoo_venv.exceptions import (
     ResolvedVenvPathMissingError,
     VenvCreationRequiresOdooDirError,
 )
-from odoo_venv.launcher import create_launcher
 from odoo_venv.main import create_and_register_venv, resolve_common_preset
 from odoo_venv.ovx_resolver import (
     clone_venv,
@@ -288,7 +287,6 @@ def run_ovx(
     odoo_dir: Path | None,
     database: str | None,
     keep_clone: bool,
-    no_launcher: bool,
     extra_args: list[str],
     addons_path: list[str] | None = None,
 ) -> int:
@@ -322,9 +320,6 @@ def run_ovx(
         if missing:
             install_python_deps(target, missing)
             typer.secho(f"Installed missing deps: {', '.join(missing)}", fg=typer.colors.CYAN)
-
-        if not no_launcher:
-            create_launcher(series, target, odoo_dir=odoo_dir, force=False)
 
         addons_path_parts = _resolve_addons_path(target, addon_paths, extra_addons, odoo_dir=odoo_dir)
 
