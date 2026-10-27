@@ -329,6 +329,18 @@ class TestBuildOdooArgv:
         argv = build_odoo_argv(venv, [addon], [], "testdb", extra_args=["--max-cron-threads=2"])
         assert argv.index("--max-cron-threads=2") > argv.index("--max-cron-threads=0")
 
+    def test_binds_localhost_by_default(self, tmp_path):
+        venv = tmp_path / "venv"
+        addon = tmp_path / "my_addon"
+        argv = build_odoo_argv(venv, [addon], [], "testdb", extra_args=[])
+        assert "--http-interface=127.0.0.1" in argv
+
+    def test_user_http_interface_comes_after_default(self, tmp_path):
+        venv = tmp_path / "venv"
+        addon = tmp_path / "my_addon"
+        argv = build_odoo_argv(venv, [addon], [], "testdb", extra_args=["--http-interface=0.0.0.0"])
+        assert argv.index("--http-interface=0.0.0.0") > argv.index("--http-interface=127.0.0.1")
+
     def test_two_module_argv(self, tmp_path):
         venv = tmp_path / "venv"
         parent_a = tmp_path / "src_a"

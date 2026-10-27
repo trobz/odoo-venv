@@ -67,8 +67,10 @@ def build_odoo_argv(
         joined,
         "-d",
         db_name,
-        # Crons would race the module install; extra_args come last so the user can override.
+        # Crons would race the module install, and a throwaway instance should not be
+        # reachable from the network; extra_args come last so the user can override.
         "--max-cron-threads=0",
+        "--http-interface=127.0.0.1",
         *extra_args,
     ]
 

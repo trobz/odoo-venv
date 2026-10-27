@@ -37,6 +37,8 @@ Extra arguments after `--` are forwarded verbatim to Odoo.
 
 Cron threads are disabled by default (`--max-cron-threads=0`). Pass `-- --max-cron-threads=N` to re-enable them.
 
+Odoo listens on localhost only (`--http-interface=127.0.0.1`) by default. Pass `-- --http-interface=0.0.0.0` to expose it on the network.
+
 ## Venv resolution
 
 `ovx` has no CWD-based venv discovery — the same command behaves identically from any working directory. At least one of `--venv-dir` or `--odoo-dir` is required:
