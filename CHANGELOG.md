@@ -2,6 +2,50 @@
 
 <!-- version list -->
 
+## v2.0.0 (2026-10-27)
+
+### Bug Fixes
+
+- Replace remaining noqa: TRY003 raises with dedicated error classes
+  ([`131c37a`](https://github.com/trobz/odoo-venv/commit/131c37a941b6d7dc0337ec821e3f35e8090013f8))
+
+- **ovx**: Delegate --addons-path assembly to odoo_addons_path
+  ([`78726bb`](https://github.com/trobz/odoo-venv/commit/78726bbe29bc10ff7797723956282f1444fb82b9))
+
+- **ovx**: Expand ~ in --odoo-dir and --venv-dir
+  ([`51d6919`](https://github.com/trobz/odoo-venv/commit/51d6919131792dd57f7a9a26285c6b48338ba700))
+
+- **ovx**: Fail fast on any Odoo series disagreement
+  ([`881123e`](https://github.com/trobz/odoo-venv/commit/881123ef52db9a02f033cb6c41d0f343c725357a))
+
+- **ovx**: Permanent, pollution-free base venv on cold start
+  ([`3da5a73`](https://github.com/trobz/odoo-venv/commit/3da5a73997605dcb3b36c0118e20123e9b41eb76))
+
+- **ovx**: Put the given --odoo-dir in the non-interactive create hint
+  ([`ed3c09c`](https://github.com/trobz/odoo-venv/commit/ed3c09c50d39e07a86514aac6a6c3e678771c6a9))
+
+- **ovx**: Report a missing --odoo-dir instead of an undetermined version
+  ([`cda8881`](https://github.com/trobz/odoo-venv/commit/cda8881f60b92d13b79adf9fb3ceb5de01446f43))
+
+### Build System
+
+- **deps**: Bump odoo-addons-path to 2.0.1 and raise uv exclude-newer
+  ([`35e476e`](https://github.com/trobz/odoo-venv/commit/35e476e5e60471ae74fb48481a8cff2337f55695))
+
+### Documentation
+
+- Trim README/AGENTS and correct ovx reference docs
+  ([`ec9860e`](https://github.com/trobz/odoo-venv/commit/ec9860e2db2f010485d7ba4549e8fa2385c13e2c))
+
+### Refactoring
+
+- **ovx**: Require an explicit venv or Odoo source
+  ([`3f533e8`](https://github.com/trobz/odoo-venv/commit/3f533e8af5eef231702bda5b411e11542dc15cd7))
+
+- **venv**: Single creation path shared by create and ovx
+  ([`3a550fd`](https://github.com/trobz/odoo-venv/commit/3a550fd953632c71a555172782a7b6c45841b6ac))
+
+
 ## v1.26.1 (2026-09-25)
 
 ### Bug Fixes
