@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v2.0.1 (2026-10-27)
+
+### Bug Fixes
+
+- Use uv's legacy tar backend when installing packages
+  ([`ac85cf2`](https://github.com/trobz/odoo-venv/commit/ac85cf25804f032d2323092862d7f5ee6c3c9671))
+
+
 ## v2.0.0 (2026-10-27)
 
 ### Bug Fixes
