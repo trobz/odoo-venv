@@ -39,6 +39,8 @@ Cron threads are disabled by default (`--max-cron-threads=0`). Pass `-- --max-cr
 
 Odoo listens on localhost only (`--http-interface=127.0.0.1`) by default. Pass `-- --http-interface=0.0.0.0` to expose it on the network.
 
+Demo data is loaded on new databases by default: ovx passes `--without-demo=` up to 18.0 and `--with-demo` from 19.0. Pass `-- --without-demo=all` (≤ 18.0) or `-- --without-demo` (≥ 19.0) to skip it.
+
 ## Venv resolution
 
 `ovx` has no CWD-based venv discovery — the same command behaves identically from any working directory. At least one of `--venv-dir` or `--odoo-dir` is required:

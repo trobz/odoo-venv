@@ -47,12 +47,34 @@ def user_supplied_db(extra_args: list[str]) -> bool:
     return False
 
 
+def demo_data_arg(series: str) -> str:
+    """Return the Odoo flag that loads demo data on new databases for the given series.
+
+    Up to 18.0, ``--without-demo`` takes free text and any non-empty value (even ``False``)
+    disables demo data; an empty value turns it back on, overriding the config file.
+    19.0 replaced it with ``--with-demo``. Non-numeric series (e.g. ``master``) are the newest.
+
+    >>> demo_data_arg("18.0")
+    '--without-demo='
+    >>> demo_data_arg("19.0")
+    '--with-demo'
+    >>> demo_data_arg("master")
+    '--with-demo'
+    """
+    major = series.split(".")[0]
+    if major.isdigit() and int(major) <= 18:
+        return "--without-demo="
+    return "--with-demo"
+
+
 def build_odoo_argv(
     venv: Path,
     addon_paths: list[Path],
     addons_path: list[str],
     db_name: str,
     extra_args: list[str],
+    *,
+    series: str,
 ) -> list[str]:
     """Build the Odoo subprocess argv list."""
     modules = ",".join(p.name for p in addon_paths)
@@ -67,10 +89,12 @@ def build_odoo_argv(
         joined,
         "-d",
         db_name,
-        # Crons would race the module install, and a throwaway instance should not be
-        # reachable from the network; extra_args come last so the user can override.
+        # Crons would race the module install, a throwaway instance should not be reachable
+        # from the network, and demo data is what you want to try an addon against;
+        # extra_args come last so the user can override.
         "--max-cron-threads=0",
         "--http-interface=127.0.0.1",
+        demo_data_arg(series),
         *extra_args,
     ]
 
@@ -327,7 +351,9 @@ def run_ovx(
 
         addons_path_parts = _resolve_addons_path(target, addon_paths, extra_addons, odoo_dir=odoo_dir)
 
-        db_name_managed, argv = _build_db_and_argv(target, addon_paths, addons_path_parts, database, extra_args)
+        db_name_managed, argv = _build_db_and_argv(
+            target, addon_paths, addons_path_parts, database, extra_args, series=series
+        )
 
         if keep_clone and target != base:
             typer.secho(f"Clone kept at: {target}", fg=typer.colors.YELLOW)
@@ -377,17 +403,19 @@ def _build_db_and_argv(
     addons_path_parts: list[str],
     database: str | None,
     extra_args: list[str],
+    *,
+    series: str,
 ) -> tuple["str | None", list[str]]:
     """Determine DB name and build the Odoo argv. Returns (managed_db_name, argv)."""
     if user_supplied_db(extra_args):
         db_for_argv = _extract_db_from_args(extra_args) or "odoo"
-        return None, build_odoo_argv(target, addon_paths, addons_path_parts, db_for_argv, extra_args)
+        return None, build_odoo_argv(target, addon_paths, addons_path_parts, db_for_argv, extra_args, series=series)
 
     if database:
-        return None, build_odoo_argv(target, addon_paths, addons_path_parts, database, extra_args)
+        return None, build_odoo_argv(target, addon_paths, addons_path_parts, database, extra_args, series=series)
 
     db_name = make_ephemeral_db_name([p.name for p in addon_paths])
-    return db_name, build_odoo_argv(target, addon_paths, addons_path_parts, db_name, extra_args)
+    return db_name, build_odoo_argv(target, addon_paths, addons_path_parts, db_name, extra_args, series=series)
 
 
 def _extract_db_from_args(extra_args: list[str]) -> str | None:
