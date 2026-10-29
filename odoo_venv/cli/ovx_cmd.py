@@ -36,10 +36,6 @@ def main(
         bool,
         typer.Option("--keep-clone", hidden=True, help="Keep the cloned venv on disk after run."),
     ] = False,
-    no_launcher: Annotated[
-        bool,
-        typer.Option("--no-launcher", help="Skip launcher script creation."),
-    ] = False,
     addons_path: Annotated[
         str | None,
         typer.Option(
@@ -89,7 +85,6 @@ def main(
             odoo_dir=odoo_dir,
             database=database,
             keep_clone=keep_clone,
-            no_launcher=no_launcher,
             extra_args=ctx.args,
             addons_path=extra_addons,
         )

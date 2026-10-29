@@ -31,10 +31,15 @@ Resolves the Odoo series from `--odoo-dir`, `--venv-dir`, and every addon's mani
 | `--venv-dir` | — | Explicit venv to use (must match the addon's Odoo series). |
 | `--odoo-dir` | — | Odoo source directory. Required on cold start, where it supplies the Odoo source the venv is built from. |
 | `-d`, `--database` | — | Named DB to use. Suppresses ephemeral DB creation and cleanup. |
-| `--no-launcher` | `False` | Skip launcher script creation. |
 | `--addons-path` | — | Extra addons paths (comma-separated) for modules the target addons depend on, e.g. enterprise or OCA checkouts. Merged with the venv's stored `addons_path` and the addons' own parent directories. |
 
 Extra arguments after `--` are forwarded verbatim to Odoo.
+
+Cron threads are disabled by default (`--max-cron-threads=0`). Pass `-- --max-cron-threads=N` to re-enable them.
+
+Odoo listens on localhost only (`--http-interface=127.0.0.1`) by default. Pass `-- --http-interface=0.0.0.0` to expose it on the network.
+
+Demo data is loaded on new databases by default: ovx passes `--without-demo=` up to 18.0 and `--with-demo` from 19.0. Pass `-- --without-demo=all` (≤ 18.0) or `-- --without-demo` (≥ 19.0) to skip it.
 
 ## Venv resolution
 
