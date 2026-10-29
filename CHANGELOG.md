@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v2.1.0 (2026-10-29)
+
+### Bug Fixes
+
+- **ovx**: Stop creating a launcher script
+  ([`bfa13ee`](https://github.com/trobz/odoo-venv/commit/bfa13eec691d188f8b83ec79afc1699dbd4c689b))
+
+### Features
+
+- **ovx**: Bind Odoo to localhost by default
+  ([`e21580b`](https://github.com/trobz/odoo-venv/commit/e21580bd2883c391dd75cee41992d8dcf7cae3fa))
+
+- **ovx**: Disable cron threads by default
+  ([`c1f41f9`](https://github.com/trobz/odoo-venv/commit/c1f41f9bc535399dbb560003eb1f569ac896c4fb))
+
+- **ovx**: Load demo data by default
+  ([`0ea69de`](https://github.com/trobz/odoo-venv/commit/0ea69de9f827ba1537c847204d2c25c1691e88ac))
+
+
 ## v2.0.1 (2026-10-27)
 
 ### Bug Fixes
