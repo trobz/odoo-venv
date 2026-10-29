@@ -14,6 +14,7 @@ from pathlib import Path
 import typer
 from packaging.markers import Marker, default_environment
 from packaging.requirements import InvalidRequirement, Requirement
+from packaging.specifiers import SpecifierSet
 from packaging.version import parse as parse_version
 
 from odoo_venv.launcher import create_launcher
@@ -605,6 +606,71 @@ _NO_BUILD_ISOLATION_PACKAGES: dict[str, str] = {
 # Format: { normalised_pkg_name: [build_dep, ...] }
 _NBI_BUILD_DEPS: dict[str, list[str]] = {}
 
+# Packages whose sdist only compiles on recent GCC with extra build env.  Pre-installed
+# alone (--no-deps) with that env before the batch install, which then keeps the
+# already-satisfied version, so no other package is built with that env.  The when_marker
+# limits it to Odoo/Python combinations where PyPI has no wheel for the pinned version.
+# Format: { normalised_pkg_name: (extra_env, when_marker) }
+_BUILD_ENV_PACKAGES: dict[str, tuple[dict[str, str], str]] = {
+    # reportlab < 4 C extensions: `int bool;` breaks with GCC >= 15 (C23 default) and
+    # incompatible pointer types are an error since GCC 14 (reportlab >= 3.5).
+    # No Linux wheels for 3.3.0 (Odoo <= 12.0); 3.5.13 has wheels up to cp37 (Odoo 13.0),
+    # 3.5.55/3.5.59 up to cp39 (Odoo 14.0-16.0).
+    "reportlab": (
+        {"CFLAGS": "-std=gnu17 -Wno-error=incompatible-pointer-types"},
+        "odoo_version <= '12.0'"
+        " or odoo_version == '13.0' and python_version >= '3.8'"
+        " or odoo_version >= '14.0' and odoo_version <= '16.0' and python_version >= '3.10'",
+    ),
+}
+
+
+def _collect_build_env_specs(
+    req_lines: list[str],
+    odoo_version: str,
+    python_version: str | None,
+) -> dict[str, tuple[str, dict[str, str]]]:
+    """Return {normalised_name: (install_spec, extra_env)} for packages needing a build env.
+
+    *req_lines* are the effective requirements (markers already evaluated, ignores applied).
+    Specifiers of repeated entries are combined.  Variables already set in the environment
+    are left out of *extra_env* so the user's own value wins.
+
+    >>> _collect_build_env_specs(["reportlab==3.3.0", "requests"], "12.0", "3.7")
+    {'reportlab': ('reportlab==3.3.0', {'CFLAGS': '-std=gnu17 -Wno-error=incompatible-pointer-types'})}
+    >>> _collect_build_env_specs(["reportlab==3.5.13"], "13.0", "3.7")
+    {}
+    >>> list(_collect_build_env_specs(["reportlab==3.5.13"], "13.0", "3.8"))
+    ['reportlab']
+    >>> list(_collect_build_env_specs(["reportlab==3.5.59"], "16.0", "3.10"))
+    ['reportlab']
+    >>> _collect_build_env_specs(["reportlab==3.6.8"], "17.0", "3.10")
+    {}
+    >>> _collect_build_env_specs(["reportlab>=3.3", "Reportlab<4  # comment"], "12.0", "3.7")["reportlab"][0]
+    'reportlab<4,>=3.3'
+    """
+    specs: dict[str, list[str]] = defaultdict(list)
+    for line in req_lines:
+        line = line.split("#")[0].strip()
+        if not line:
+            continue
+        try:
+            req = Requirement(line)
+        except InvalidRequirement:
+            continue
+        pkg_normalized = re.sub(r"[-_.]+", "-", req.name.lower())
+        if pkg_normalized in _BUILD_ENV_PACKAGES:
+            specs[pkg_normalized].append(str(req.specifier))
+
+    result: dict[str, tuple[str, dict[str, str]]] = {}
+    for pkg_name, specifiers in specs.items():
+        extra_env, when_marker = _BUILD_ENV_PACKAGES[pkg_name]
+        if not _evaluate_marker(when_marker, odoo_version, python_version):
+            continue
+        spec = f"{pkg_name}{SpecifierSet(','.join(s for s in specifiers if s))}"
+        result[pkg_name] = (spec, {k: v for k, v in extra_env.items() if k not in os.environ})
+    return result
+
 
 def _collect_no_build_isolation_specs(
     req_lines: list[str],
@@ -1096,6 +1162,30 @@ def create_odoo_venv(  # noqa: C901
 
     skipped: list[str] = []
     if req_count > 0:
+        # Pre-build packages that need a specific build env (e.g. old reportlab on GCC >= 15),
+        # so the batch install below finds them satisfied instead of building them without it.
+        with open(tmp_path, encoding="utf-8") as f:
+            build_env_specs = _collect_build_env_specs(f.read().splitlines(), odoo_version, python_version)
+        for spec, extra_env in build_env_specs.values():
+            env_str = " ".join(f"{k}={v}" for k, v in extra_env.items())
+            typer.secho(f"\nPre-building {spec}" + (f" with {env_str}" if env_str else "") + "...")
+            try:
+                _run_command(
+                    ["uv", "pip", "install", "--no-deps", spec],
+                    venv_dir=venv_dir_path,
+                    verbose=verbose,
+                    extra_env=extra_env,
+                    raise_on_error=True,
+                )
+                typer.secho(f"  ✔  {typer.style(spec, fg=typer.colors.YELLOW)} installed")
+            except subprocess.CalledProcessError as e:
+                # Leave it to the batch install (and its skip-on-failure handling)
+                typer.secho(
+                    f"  ⚠  Pre-building {spec} failed, retrying with the other packages", fg=typer.colors.YELLOW
+                )
+                if verbose:
+                    typer.echo(e.stderr, file=sys.stderr)
+
         typer.secho("\nInstalling required packages...")
         if verbose:
             if ignored_req_map:
