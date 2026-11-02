@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v2.1.1 (2026-11-02)
+
+### Bug Fixes
+
+- Pre-build old reportlab with C17 flags on recent GCC
+  ([`e97b195`](https://github.com/trobz/odoo-venv/commit/e97b1952f7e594d10ef56219225a2b9e493a916f))
+
+### Documentation
+
+- **site-docs**: Add compiler build errors page for old reportlab on GCC 15
+  ([`e32d281`](https://github.com/trobz/odoo-venv/commit/e32d281b9b7e7663e0fb9aa622529ebe8e6b20b1))
+
+
 ## v2.1.0 (2026-10-29)
 
 ### Bug Fixes
