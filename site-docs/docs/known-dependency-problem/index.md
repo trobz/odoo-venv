@@ -15,6 +15,7 @@ Installing Odoo and its addons involves Python dependency management that regula
 | **Version conflicts** | Odoo pins `pytz==2016.7`, your addon needs `pytz>=2020.1` | [Read more](version-conflicts.md) |
 | **Build isolation errors** | `use_2to3 is invalid` when installing old packages | [Read more](build-isolation-errors.md) |
 | **Transitive dependency issues** | Installing `magento` pulls `suds-jurko` which fails to build | [Read more](transitive-dependency-issues.md) |
+| **Compiler build errors** | `'bool' cannot be used here` when building old `reportlab` on GCC 15 | [Read more](compiler-build-errors.md) |
 
 ## How odoo-venv helps
 
