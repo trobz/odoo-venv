@@ -494,6 +494,33 @@ def _extract_failed_package(stderr: str) -> str | None:
     return None
 
 
+def _summarize_build_error(stderr: str, max_lines: int = 12) -> str:
+    """Pull the meaningful lines out of a failed build's stderr.
+
+    Prefers the actual error lines (compiler ``error:``/``fatal error:``, uv's
+    ``Failed to build`` and its ``U+00D7`` cross marker) so the cause is visible
+    without ``--verbose``; falls back to the tail of the output when none match. The
+    error pattern already skips ``warning:``/``note:`` lines, so the many
+    deprecation notes in a compile log are left out. Returns at most *max_lines*
+    lines, oldest first; an empty string for empty input.
+
+    >>> _summarize_build_error("")
+    ''
+    >>> _summarize_build_error("gcc: note: foo\\nfoo.c:1: error: 'bool' undeclared\\n")
+    "foo.c:1: error: 'bool' undeclared"
+    >>> _summarize_build_error("warning: x is deprecated\\nerror: real problem")
+    'error: real problem'
+    >>> _summarize_build_error("line a\\nline b\\n\\nline c", max_lines=2)
+    'line b\\nline c'
+    """
+    if not stderr:
+        return ""
+    lines = stderr.splitlines()
+    key = [ln for ln in lines if re.search(r"(?:^|\s)(?:error:|fatal error:)|^error\b|^\s*\u00d7 |Failed to build", ln)]
+    chosen = key or [ln for ln in lines if ln.strip()]
+    return "\n".join(chosen[-max_lines:])
+
+
 def _install_requirements_with_retry(
     tmp_path: str,
     venv_dir: Path,
@@ -1179,12 +1206,26 @@ def create_odoo_venv(  # noqa: C901
                 )
                 typer.secho(f"  ✔  {typer.style(spec, fg=typer.colors.YELLOW)} installed")
             except subprocess.CalledProcessError as e:
-                # Leave it to the batch install (and its skip-on-failure handling)
+                # Leave it to the batch install (and its skip-on-failure handling),
+                # but surface *why* it failed. The batch retry builds this package
+                # without its special build env, so if the failure is a real
+                # toolchain problem (e.g. reportlab on a new GCC) it fails again
+                # there, opaquely. Showing the error here — not only under
+                # --verbose — tells a genuine build break from a transient one.
                 typer.secho(
                     f"  ⚠  Pre-building {spec} failed, retrying with the other packages", fg=typer.colors.YELLOW
                 )
                 if verbose:
                     typer.echo(e.stderr, file=sys.stderr)
+                else:
+                    summary = _summarize_build_error(e.stderr)
+                    if summary:
+                        typer.secho(
+                            "\n".join(f"     {ln}" for ln in summary.splitlines()),
+                            fg=typer.colors.YELLOW,
+                            err=True,
+                        )
+                    typer.secho("     (run with --verbose for the full build log)", fg=typer.colors.YELLOW, err=True)
 
         typer.secho("\nInstalling required packages...")
         if verbose:
