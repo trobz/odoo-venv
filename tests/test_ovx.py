@@ -345,6 +345,24 @@ class TestBuildOdooArgv:
         idx_d = argv.index("-d")
         assert argv[idx_d + 1] == db
 
+    def test_uses_console_script_when_present(self, tmp_path):
+        # The `odoo` console script (editable install provides it on every series)
+        # is preferred: `python -m odoo` needs odoo/__main__.py, only on 17.0+.
+        venv = tmp_path / "venv"
+        (venv / "bin").mkdir(parents=True)
+        odoo_script = venv / "bin" / "odoo"
+        odoo_script.write_text("")
+        addon = tmp_path / "my_addon"
+        argv = build_odoo_argv(venv, [addon], [], "testdb", extra_args=[], series="16.0")
+        assert argv[0] == str(odoo_script)
+        assert "-m" not in argv
+
+    def test_falls_back_to_dash_m_without_console_script(self, tmp_path):
+        venv = tmp_path / "venv"
+        addon = tmp_path / "my_addon"
+        argv = build_odoo_argv(venv, [addon], [], "testdb", extra_args=[], series="16.0")
+        assert argv[:3] == [str(venv / "bin" / "python"), "-m", "odoo"]
+
     def test_extra_args_appended(self, tmp_path):
         venv = tmp_path / "venv"
         addon = tmp_path / "my_addon"
