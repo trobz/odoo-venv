@@ -95,6 +95,34 @@ def _core_source_override(venv: Path | None, odoo_dir: Path | None) -> Path | No
     return resolved
 
 
+def _odoo_launcher(venv: Path) -> list[str]:
+    """Return the argv prefix that launches Odoo from *venv*.
+
+    ``python -m odoo`` needs ``odoo/__main__.py``, which Odoo only ships from
+    17.0 on; on 16.0 and earlier it fails with "No module named odoo.__main__".
+    The ``odoo`` console script the editable install always provides runs
+    ``odoo.cli.main()`` on every series, so prefer it and fall back to
+    ``-m odoo`` only when it is missing.
+
+    The script is passed to the venv's own ``python`` instead of being executed
+    directly: its shebang is an absolute path to the base venv's interpreter and
+    ``clone_venv`` does not rewrite it, so a direct run from a clone would ignore
+    the packages installed into the clone.
+
+    >>> import tempfile, pathlib
+    >>> d = pathlib.Path(tempfile.mkdtemp())
+    >>> _odoo_launcher(d) == [str(d / "bin" / "python"), "-m", "odoo"]
+    True
+    >>> (d / "bin").mkdir(); _ = (d / "bin" / "odoo").write_text("")
+    >>> _odoo_launcher(d) == [str(d / "bin" / "python"), str(d / "bin" / "odoo")]
+    True
+    """
+    odoo_script = venv / "bin" / "odoo"
+    if odoo_script.is_file():
+        return [str(venv / "bin" / "python"), str(odoo_script)]
+    return [str(venv / "bin" / "python"), "-m", "odoo"]
+
+
 def build_odoo_argv(
     venv: Path,
     addon_paths: list[Path],
@@ -108,9 +136,7 @@ def build_odoo_argv(
     modules = ",".join(p.name for p in addon_paths)
     joined = ",".join(addons_path) if addons_path else str(addon_paths[0].parent)
     return [
-        str(venv / "bin" / "python"),
-        "-m",
-        "odoo",
+        *_odoo_launcher(venv),
         "-i",
         modules,
         "--addons-path",
