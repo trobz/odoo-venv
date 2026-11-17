@@ -104,17 +104,22 @@ def _odoo_launcher(venv: Path) -> list[str]:
     ``odoo.cli.main()`` on every series, so prefer it and fall back to
     ``-m odoo`` only when it is missing.
 
+    The script is passed to the venv's own ``python`` instead of being executed
+    directly: its shebang is an absolute path to the base venv's interpreter and
+    ``clone_venv`` does not rewrite it, so a direct run from a clone would ignore
+    the packages installed into the clone.
+
     >>> import tempfile, pathlib
     >>> d = pathlib.Path(tempfile.mkdtemp())
     >>> _odoo_launcher(d) == [str(d / "bin" / "python"), "-m", "odoo"]
     True
     >>> (d / "bin").mkdir(); _ = (d / "bin" / "odoo").write_text("")
-    >>> _odoo_launcher(d) == [str(d / "bin" / "odoo")]
+    >>> _odoo_launcher(d) == [str(d / "bin" / "python"), str(d / "bin" / "odoo")]
     True
     """
     odoo_script = venv / "bin" / "odoo"
     if odoo_script.is_file():
-        return [str(odoo_script)]
+        return [str(venv / "bin" / "python"), str(odoo_script)]
     return [str(venv / "bin" / "python"), "-m", "odoo"]
 
 

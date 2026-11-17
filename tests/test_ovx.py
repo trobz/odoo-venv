@@ -345,16 +345,20 @@ class TestBuildOdooArgv:
         idx_d = argv.index("-d")
         assert argv[idx_d + 1] == db
 
-    def test_uses_console_script_when_present(self, tmp_path):
+    def test_console_script_runs_under_venv_python(self, tmp_path):
         # The `odoo` console script (editable install provides it on every series)
         # is preferred: `python -m odoo` needs odoo/__main__.py, only on 17.0+.
+        # Its shebang is an absolute path to the *base* venv's python, and
+        # clone_venv does not rewrite it, so exec'ing the script directly from a
+        # clone would ignore the clone's site-packages. argv[0] must be the
+        # venv's own python, with the script passed as its argument.
         venv = tmp_path / "venv"
         (venv / "bin").mkdir(parents=True)
         odoo_script = venv / "bin" / "odoo"
-        odoo_script.write_text("")
+        odoo_script.write_text("#!/some/other/base/bin/python\n")
         addon = tmp_path / "my_addon"
         argv = build_odoo_argv(venv, [addon], [], "testdb", extra_args=[], series="16.0")
-        assert argv[0] == str(odoo_script)
+        assert argv[:2] == [str(venv / "bin" / "python"), str(odoo_script)]
         assert "-m" not in argv
 
     def test_falls_back_to_dash_m_without_console_script(self, tmp_path):
