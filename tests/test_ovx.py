@@ -17,6 +17,7 @@ from odoo_venv.exceptions import (
     VenvCreationRequiresOdooDirError,
 )
 from odoo_venv.ovx import (
+    _core_source_override,
     _resolve_addons_path,
     _resolve_series,
     build_odoo_argv,
@@ -285,6 +286,39 @@ class TestInstallPythonDeps:
         install_python_deps(tmp_path, [])
 
         mock_run.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _core_source_override
+# ---------------------------------------------------------------------------
+
+
+class TestCoreSourceOverride:
+    def test_none_when_no_odoo_dir(self, tmp_path):
+        assert _core_source_override(tmp_path / "venv", None) is None
+
+    def test_none_when_matches_venv_recorded_dir(self, tmp_path):
+        venv = tmp_path / "venv"
+        venv.mkdir()
+        odoo_dir = tmp_path / "odoo"
+        odoo_dir.mkdir()
+        write_venv_config(venv, {"odoo_dir": str(odoo_dir)}, odoo_version="16.0")
+        assert _core_source_override(venv, odoo_dir) is None
+
+    def test_returns_dir_when_differs_from_venv(self, tmp_path):
+        venv = tmp_path / "venv"
+        venv.mkdir()
+        shared = tmp_path / "shared"
+        shared.mkdir()
+        case = tmp_path / "case"
+        case.mkdir()
+        write_venv_config(venv, {"odoo_dir": str(shared)}, odoo_version="16.0")
+        assert _core_source_override(venv, case) == case.resolve()
+
+    def test_returns_dir_when_venv_has_no_config(self, tmp_path):
+        odoo_dir = tmp_path / "odoo"
+        odoo_dir.mkdir()
+        assert _core_source_override(tmp_path / "venv", odoo_dir) == odoo_dir.resolve()
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 """Orchestrator and DB lifecycle for the ovx command."""
 
 import contextlib
+import os
 import re
 import shutil
 import signal
@@ -67,6 +68,33 @@ def demo_data_arg(series: str) -> str:
     return "--with-demo"
 
 
+def _core_source_override(venv: Path | None, odoo_dir: Path | None) -> Path | None:
+    """The Odoo source dir to force onto ``PYTHONPATH``, or None to leave env alone.
+
+    The venv's ``odoo`` is an *editable* install bound to the odoo-dir it was
+    created from, so Odoo's core imports from there. When the caller passes a
+    *different* ``--odoo-dir`` (e.g. one shared venv reused across several
+    checkouts), ovx resolves the addons-path and series from that dir but the
+    core would still load from the venv's — a silent mismatch. Returning the
+    caller's dir lets it be prepended to ``PYTHONPATH`` so core, addons and
+    series all agree.
+
+    Returns None — leaving the environment untouched — when no ``--odoo-dir`` was
+    given, or it matches the venv's own recorded dir (the normal
+    one-venv-per-checkout case).
+    """
+    if odoo_dir is None:
+        return None
+    resolved = odoo_dir.expanduser().resolve()
+    if venv is not None:
+        with contextlib.suppress(FileNotFoundError):
+            args, _, _, _ = read_venv_config(venv)
+            stored = args.get("odoo_dir", "")
+            if isinstance(stored, str) and stored and Path(stored).expanduser().resolve() == resolved:
+                return None
+    return resolved
+
+
 def build_odoo_argv(
     venv: Path,
     addon_paths: list[Path],
@@ -120,14 +148,15 @@ def _drop_db(name: str) -> None:
         )
 
 
-def run_with_db_lifecycle(odoo_cmd: list[str], db_name: str | None) -> int:
+def run_with_db_lifecycle(odoo_cmd: list[str], db_name: str | None, env: dict[str, str] | None = None) -> int:
     """Spawn Odoo and manage ephemeral DB cleanup.
 
     If *db_name* is not None, the DB is dropped after Odoo exits (success or failure).
     If *db_name* is None, the caller manages the DB lifecycle (user-supplied -d).
+    *env* overrides the child environment; None inherits the current one unchanged.
     """
     managed = db_name is not None
-    proc = subprocess.Popen(odoo_cmd)  # noqa: S603
+    proc = subprocess.Popen(odoo_cmd, env=env)  # noqa: S603
 
     old_sigint = signal.getsignal(signal.SIGINT)
     old_sigterm = signal.getsignal(signal.SIGTERM)
@@ -358,7 +387,17 @@ def run_ovx(
         if keep_clone and target != base:
             typer.secho(f"Clone kept at: {target}", fg=typer.colors.YELLOW)
 
-        return run_with_db_lifecycle(argv, db_name_managed)
+        # Make Odoo's core load from the given --odoo-dir, not the venv's editable
+        # target, when they differ (so it matches the addons-path/series above).
+        run_env: dict[str, str] | None = None
+        core_source = _core_source_override(base, odoo_dir)
+        if core_source is not None:
+            run_env = dict(os.environ)
+            existing = run_env.get("PYTHONPATH", "")
+            run_env["PYTHONPATH"] = str(core_source) + (os.pathsep + existing if existing else "")
+            typer.secho(f"Loading Odoo core from {core_source} (via PYTHONPATH)", fg=typer.colors.CYAN)
+
+        return run_with_db_lifecycle(argv, db_name_managed, env=run_env)
 
     finally:
         if cleanup and not keep_clone:
