@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v2.1.3 (2026-11-17)
+
+### Bug Fixes
+
+- Run Odoo via the console script so ovx works on series < 17.0
+  ([`4c3da43`](https://github.com/trobz/odoo-venv/commit/4c3da431c721a8ae4c2ea90b07b8f127096e8294))
+
+- Run the odoo console script with the venv's own python
+  ([`49d5aa9`](https://github.com/trobz/odoo-venv/commit/49d5aa939240e45d426454159a17f73609eddd2c))
+
+
 ## v2.1.2 (2026-11-17)
 
 ### Bug Fixes
