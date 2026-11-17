@@ -717,14 +717,14 @@ def _collect_no_build_isolation_specs(
 
 
 def _get_python_version_from_odoo_src(odoo_dir: Path) -> str | None:
-    init_py = odoo_dir / "odoo" / "__init__.py"
-    if not init_py.is_file():
-        return None
-
-    content = init_py.read_text()
-    match = re.search(r"MIN_PY_VERSION\s*=\s*\((\d+),\s*(\d+)\)", content)
-    if match:
-        return f"{match.group(1)}.{match.group(2)}"
+    # MIN_PY_VERSION lives in odoo/__init__.py up to 18.0 and in odoo/release.py from 19.0
+    for name in ("release.py", "__init__.py"):
+        src = odoo_dir / "odoo" / name
+        if not src.is_file():
+            continue
+        match = re.search(r"^MIN_PY_VERSION\s*=\s*\((\d+),\s*(\d+)\)", src.read_text(), re.MULTILINE)
+        if match:
+            return f"{match.group(1)}.{match.group(2)}"
     return None
 
 
