@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v2.1.2 (2026-11-17)
+
+### Bug Fixes
+
+- Load Odoo core from --odoo-dir when it differs from the venv's
+  ([`a101a72`](https://github.com/trobz/odoo-venv/commit/a101a725e42a6bb550af54e4f2f3d6e319a8f2a4))
+
+- Surface pre-build errors without --verbose
+  ([`607b105`](https://github.com/trobz/odoo-venv/commit/607b105e2af23e892eed355ed7c2fe0ef4579c80))
+
+- Use Python 3.12 for Odoo 20.0
+  ([`650c992`](https://github.com/trobz/odoo-venv/commit/650c99228e5cbe264e7a9ce3c7a28e4fd338fa0a))
+
+
 ## v2.1.1 (2026-11-02)
 
 ### Bug Fixes
