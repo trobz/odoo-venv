@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v2.1.4 (2026-11-25)
+
+### Bug Fixes
+
+- Rewrite broken uv build-env shebang in bin/odoo
+  ([`29e5b38`](https://github.com/trobz/odoo-venv/commit/29e5b38bc9135fc0ec47f3aadbbdab7404254847))
+
+
 ## v2.1.3 (2026-11-17)
 
 ### Bug Fixes
