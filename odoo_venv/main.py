@@ -866,6 +866,29 @@ def _build_reverse_dep_map(venv_dir: Path, explicit_pkgs: set[str]) -> dict[str,
     return reverse
 
 
+def _fix_odoo_script_shebang(venv_dir: Path) -> bool:
+    """Rewrite a broken build-env shebang in ``<venv>/bin/odoo``.
+
+    Odoo 12.0-15.0 declare ``scripts=['setup/odoo']`` in ``setup.py``. During an
+    isolated ``uv pip install -e``, setuptools writes the ephemeral build venv's
+    Python path (``.../.cache/uv/builds-v0/.tmp.../bin/python``) as the shebang,
+    which breaks once uv deletes the build dir. Point it at the target venv's
+    own Python instead.
+    """
+    odoo_script = venv_dir / "bin" / "odoo"
+    if not odoo_script.is_file():
+        return False
+    expected = f"#!{venv_dir.resolve() / 'bin' / 'python'}"
+    raw = odoo_script.read_bytes()
+    if not raw.startswith(b"#!"):
+        return False
+    first_line, sep, rest = raw.partition(b"\n")
+    if first_line.decode("utf-8", errors="replace").strip() == expected:
+        return False
+    odoo_script.write_bytes(expected.encode("utf-8") + sep + rest)
+    return True
+
+
 def create_odoo_venv(  # noqa: C901
     odoo_version: str,
     odoo_dir: Path | str,
@@ -1317,6 +1340,7 @@ def create_odoo_venv(  # noqa: C901
             venv_dir=venv_dir_path,
             verbose=verbose,
         )
+        _fix_odoo_script_shebang(venv_dir_path)
         typer.secho(
             "  ✔  Installed Odoo in editable mode",
         )
